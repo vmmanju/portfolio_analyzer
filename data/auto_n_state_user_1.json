@@ -1,0 +1,239 @@
+{
+  "optimal_n": 30,
+  "evaluation_table": [
+    {
+      "n": 10,
+      "sharpe_raw": 1.0,
+      "diversification_score": 0.5,
+      "stability_score": 50.0,
+      "rrc_agg": 52.36910015272703,
+      "sls_agg": 33.91635398676742,
+      "concentration_penalty": 0.0,
+      "top_3_weight": 0.39212083893030436,
+      "avg_corr": 0.5,
+      "exp_vol": 0.15,
+      "sharpe_normalized": 0.5,
+      "overfitting_risk": 0.0,
+      "governance_score": 1.0,
+      "PortfolioBenefit": 0.5523691001527271
+    },
+    {
+      "n": 12,
+      "sharpe_raw": 1.0,
+      "diversification_score": 0.5,
+      "stability_score": 50.0,
+      "rrc_agg": 50.80128164819268,
+      "sls_agg": 35.631453367064324,
+      "concentration_penalty": 0.0,
+      "top_3_weight": 0.3234882663826068,
+      "avg_corr": 0.5,
+      "exp_vol": 0.15,
+      "sharpe_normalized": 0.5,
+      "overfitting_risk": 0.0,
+      "governance_score": 1.0,
+      "PortfolioBenefit": 0.5508012816481928
+    },
+    {
+      "n": 14,
+      "sharpe_raw": 1.0,
+      "diversification_score": 0.5,
+      "stability_score": 50.0,
+      "rrc_agg": 52.90414564295886,
+      "sls_agg": 37.23920741590495,
+      "concentration_penalty": 0.0,
+      "top_3_weight": 0.2897154770452834,
+      "avg_corr": 0.5,
+      "exp_vol": 0.15,
+      "sharpe_normalized": 0.5,
+      "overfitting_risk": 0.0,
+      "governance_score": 1.0,
+      "PortfolioBenefit": 0.5529041456429589
+    },
+    {
+      "n": 16,
+      "sharpe_raw": 1.0,
+      "diversification_score": 0.5,
+      "stability_score": 50.0,
+      "rrc_agg": 53.20355843974976,
+      "sls_agg": 37.00984532909569,
+      "concentration_penalty": 0.0,
+      "top_3_weight": 0.26163888757317755,
+      "avg_corr": 0.5,
+      "exp_vol": 0.15,
+      "sharpe_normalized": 0.5,
+      "overfitting_risk": 0.0,
+      "governance_score": 1.0,
+      "PortfolioBenefit": 0.5532035584397498
+    },
+    {
+      "n": 18,
+      "sharpe_raw": 1.0,
+      "diversification_score": 0.5,
+      "stability_score": 50.0,
+      "rrc_agg": 52.909506942913175,
+      "sls_agg": 37.98379022868822,
+      "concentration_penalty": 0.0,
+      "top_3_weight": 0.23723555903026736,
+      "avg_corr": 0.5,
+      "exp_vol": 0.15,
+      "sharpe_normalized": 0.5,
+      "overfitting_risk": 0.0,
+      "governance_score": 1.0,
+      "PortfolioBenefit": 0.5529095069429132
+    },
+    {
+      "n": 20,
+      "sharpe_raw": 1.0,
+      "diversification_score": 0.5,
+      "stability_score": 50.0,
+      "rrc_agg": 54.027688037680264,
+      "sls_agg": 38.78848187643501,
+      "concentration_penalty": 0.0,
+      "top_3_weight": 0.21272085444687083,
+      "avg_corr": 0.5,
+      "exp_vol": 0.15,
+      "sharpe_normalized": 0.5,
+      "overfitting_risk": 0.0,
+      "governance_score": 1.0,
+      "PortfolioBenefit": 0.5540276880376803
+    },
+    {
+      "n": 22,
+      "sharpe_raw": 1.0,
+      "diversification_score": 0.5,
+      "stability_score": 50.0,
+      "rrc_agg": 53.82975701129897,
+      "sls_agg": 39.23987700547789,
+      "concentration_penalty": 0.0,
+      "top_3_weight": 0.19350200543177357,
+      "avg_corr": 0.5,
+      "exp_vol": 0.15,
+      "sharpe_normalized": 0.5,
+      "overfitting_risk": 0.0,
+      "governance_score": 1.0,
+      "PortfolioBenefit": 0.553829757011299
+    },
+    {
+      "n": 24,
+      "sharpe_raw": 1.0,
+      "diversification_score": 0.5,
+      "stability_score": 50.0,
+      "rrc_agg": 52.455423784403344,
+      "sls_agg": 39.07937265376791,
+      "concentration_penalty": 0.0,
+      "top_3_weight": 0.1753118809972585,
+      "avg_corr": 0.5,
+      "exp_vol": 0.15,
+      "sharpe_normalized": 0.5,
+      "overfitting_risk": 0.0,
+      "governance_score": 1.0,
+      "PortfolioBenefit": 0.5524554237844034
+    },
+    {
+      "n": 26,
+      "sharpe_raw": 1.0,
+      "diversification_score": 0.5,
+      "stability_score": 50.0,
+      "rrc_agg": 51.460724499832835,
+      "sls_agg": 39.84849708710481,
+      "concentration_penalty": 0.0,
+      "top_3_weight": 0.1616097772181264,
+      "avg_corr": 0.5,
+      "exp_vol": 0.15,
+      "sharpe_normalized": 0.5,
+      "overfitting_risk": 0.0,
+      "governance_score": 1.0,
+      "PortfolioBenefit": 0.5514607244998329
+    },
+    {
+      "n": 28,
+      "sharpe_raw": 1.0,
+      "diversification_score": 0.5,
+      "stability_score": 50.0,
+      "rrc_agg": 52.022754901823106,
+      "sls_agg": 39.43605746490254,
+      "concentration_penalty": 0.0,
+      "top_3_weight": 0.15125160359199663,
+      "avg_corr": 0.5,
+      "exp_vol": 0.15,
+      "sharpe_normalized": 0.5,
+      "overfitting_risk": 0.0,
+      "governance_score": 1.0,
+      "PortfolioBenefit": 0.5520227549018232
+    },
+    {
+      "n": 30,
+      "sharpe_raw": 1.0,
+      "diversification_score": 0.5,
+      "stability_score": 50.0,
+      "rrc_agg": 52.40753010174878,
+      "sls_agg": 39.21086857167829,
+      "concentration_penalty": 0.0,
+      "top_3_weight": 0.1383768385331346,
+      "avg_corr": 0.5,
+      "exp_vol": 0.15,
+      "sharpe_normalized": 0.5,
+      "overfitting_risk": 0.0,
+      "governance_score": 1.0,
+      "PortfolioBenefit": 0.5524075301017488
+    }
+  ],
+  "benefit_curve": [
+    {
+      "n": 10,
+      "PortfolioBenefit": 0.5523691001527271
+    },
+    {
+      "n": 12,
+      "PortfolioBenefit": 0.5508012816481928
+    },
+    {
+      "n": 14,
+      "PortfolioBenefit": 0.5529041456429589
+    },
+    {
+      "n": 16,
+      "PortfolioBenefit": 0.5532035584397498
+    },
+    {
+      "n": 18,
+      "PortfolioBenefit": 0.5529095069429132
+    },
+    {
+      "n": 20,
+      "PortfolioBenefit": 0.5540276880376803
+    },
+    {
+      "n": 22,
+      "PortfolioBenefit": 0.553829757011299
+    },
+    {
+      "n": 24,
+      "PortfolioBenefit": 0.5524554237844034
+    },
+    {
+      "n": 26,
+      "PortfolioBenefit": 0.5514607244998329
+    },
+    {
+      "n": 28,
+      "PortfolioBenefit": 0.5520227549018232
+    },
+    {
+      "n": 30,
+      "PortfolioBenefit": 0.5524075301017488
+    }
+  ],
+  "diagnostics": {
+    "concentration_flag": false,
+    "overfit_flag": false,
+    "regime_adjustment_applied": false,
+    "high_vol_regime": false,
+    "low_vol_regime": false,
+    "stability_guardrail_triggered": false,
+    "regime_note": "Normal volatility regime."
+  },
+  "last_run_date": "2026-03-13",
+  "calibration_source": "new",
+  "updated": true
+}
