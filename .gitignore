@@ -9,3 +9,26 @@ __pycache__/
 .eggs/
 venv/
 .venv/
+
+# Results and logs
+*.log
+*.txt
+*.xml
+*.out
+.pytest_cache/
+reports/
+data/*.json
+# Temporary/scratch files
+tmp_*.py
+test_rrc*.py
+audit_sls_*.txt
+build_log*.txt
+dp_out.txt
+err.txt
+out2.txt
+out_rrc.txt
+portfolio_dump.txt
+pytest_results*.txt
+regime_output.txt
+test_out.txt
+
