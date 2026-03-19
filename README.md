@@ -94,15 +94,15 @@ The `portfolio_analyzer` application is composed of several logical layers that 
 
 ```mermaid
 graph TD
-  A[Dashboard (run.py)] --> B[Services Layer]
-  B --> C[Data Fetcher]
-  C --> D[Factor Engine]
-  D --> E[Return Estimator <br/> <i>Shrinkage + Error Coefficient</i>]
-  E --> F[Stop-Loss Scoring Layer]
-  F --> G[Optimizer <br/> <i>Sharpe - RiskPenalty</i>]
-  G --> H[Backtest]
-  H --> I[Stability Analyzer]
-  I --> J[Composite Rating]
+  A["Dashboard (run.py)"] --> B["Services Layer"]
+  B --> C["Data Fetcher"]
+  C --> D["Factor Engine"]
+  D --> E["Return Estimator <br/> <i>Shrinkage + Error Coefficient</i>"]
+  E --> F["Stop-Loss Scoring Layer"]
+  F --> G["Optimizer <br/> <i>Sharpe - RiskPenalty</i>"]
+  G --> H["Backtest"]
+  H --> I["Stability Analyzer"]
+  I --> J["Composite Rating"]
   J --> A
 ```
 
