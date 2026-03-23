@@ -145,6 +145,7 @@ def llm_generate_explanation(intent: str, user_query: str, engine_data: Dict[str
     3. Format the response as a clean, concise markdown report using bullet points.
     4. If explaining "why" a score is high or low, explicitly reference the sub-components found in the JSON data.
     5. Be extremely crisp and professional.
+    6. IMPORTANT FOR RANKS: A mathematically smaller rank (e.g. 1) is a BETTER ("higher") structural rank than a larger number (e.g. 200). So Rank 106 is fundamentally better than Rank 217.
     """
     
     prompt = f"User Query: {user_query}\n\nEngine Data JSON:\n```json\n{json.dumps(engine_data, indent=2)}\n```\n\nGenerate the response:"
