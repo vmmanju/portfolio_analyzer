@@ -250,7 +250,7 @@ def _sidebar() -> None:
     
     st.session_state.mode = st.sidebar.radio(
         "Mode",
-        ["Home", "Portfolio Mode", "Stock Mode", "Research Mode", "Portfolio Comparison", "Assistant"],
+        ["Home", "Portfolio Mode", "Portfolio Comparison", "Assistant"],
         index=0,
     )
     st.sidebar.divider()
@@ -452,12 +452,8 @@ def render_home_mode() -> None:
     
     - **Home**: This introductory page.
     - **Portfolio Mode**: Build and manage your own custom portfolio. You can select specific stocks, adjust their weights, test Stop-Loss thresholds, and analyze their historical performance.
-    - **Stock Mode**: Deep dive into individual equities. View technical indicators, fundamental data, historical factor scores, and the stock's composite ranking against the market.
-    - **Research Mode**: The playground for backtesting quantitative strategies. 
-      - **Equal Weight**: Allocates equally across top-ranked stocks.
-      - **Inverse Volatility**: Allocates more capital to less volatile stocks (risk parity).
-      - **Auto-Hybrid**: Uses AI/Machine Learning to automatically select the optimal number of stocks and their weights to maximize returns while targeting a specific volatility profile.
     - **Portfolio Comparison**: The interactive Lab environment. Pit multiple user-created portfolios or system strategies against each other to compare their metrics natively.
+    - **Assistant**: Natural language AI agent ready to analyze your existing strategies, give automated market breakdowns, and answer complex financial queries dynamically using LLMs.
 
     ---
 
@@ -466,15 +462,15 @@ def render_home_mode() -> None:
     The settings in the sidebar globally dictate how the data engine builds and evaluates portfolios:
 
     - **Start/End Date**: The historical window for backtesting and analysis.
-    - **Strategy**: The default capital allocation method used when building portfolios in Research Mode.
+    - **Strategy**: The default capital allocation method used when building portfolios natively.
     - **Regime Strategy**: Defines market adaptability:
         - *Static*: Weights remain fixed through the period.
         - *Volatility Targeting*: Dynamically scales portfolio leverage/cash to target a specific volatility level (e.g., 15%).
         - *Regime Adaptive*: Advanced machine learning model that dynamically adjusts factor exposures based on the current market environment (bull, bear, volatile).
-    - **Risk Profile**: Affects the optimization constraints in the Auto-Hybrid strategy (Low = conservative bounds, High = aggressive growth chasing).
-    - **Top N**: The maximum number of top-ranked stocks the engine will select from the universe to build the portfolio.
+    - **Risk Profile**: Affects optimization constraints logic (Low = conservative bounds, High = aggressive growth chasing).
+    - **Top N**: The maximum number of top-ranked stocks the engine will select from the universe.
     
-    **To get started, expand the sidebar on the left and select 'Portfolio Mode' or 'Research Mode'!**
+    **To get started, expand the sidebar on the left and select 'Portfolio Mode' or 'Assistant'!**
     """)
 
 
