@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Portfolio AI Assistant</title>
+    <!-- Modern Typography -->
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600&family=Inter:wght@400;500&display=swap" rel="stylesheet">
+    <!-- Plotly for Charts -->
+    <script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
+    <!-- Markdown Parser -->
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body class="dark-theme">
+    <div class="app-container">
+        <!-- Header Section -->
+        <header class="glass-header">
+            <div class="logo">
+                <span class="icon">🚀</span>
+                <span class="text">Portfolio AI</span>
+            </div>
+            <div class="engine-status">
+                <span class="status-pulse"></span>
+                <span class="status-text">Engine Ready</span>
+            </div>
+        </header>
+
+        <!-- Main Chat Area -->
+        <main id="chat-container" class="chat-area">
+            <div class="welcome-message">
+                <h1>Hello, I'm your Portfolio AI Assistant.</h1>
+                <p>Ask me about stock recommendations, portfolio reviews, or price movements.</p>
+                <div class="suggestions">
+                    <button onclick="sendSuggestion('Review all the stocks in Manju_Portfolio')">"Review Manju_Portfolio"</button>
+                    <button onclick="sendSuggestion('List top 10 stocks in the market')">"List top 10 stocks"</button>
+                    <button onclick="sendSuggestion('Show price movement of TCS.NS in the last year')">"Show TCS performance"</button>
+                </div>
+            </div>
+        </main>
+
+        <!-- Input Area Section -->
+        <footer class="input-container glass-footer">
+            <div class="input-wrapper">
+                <input type="text" id="user-input" placeholder="Ask anything about your portfolio..." autocomplete="off">
+                <button id="send-button" class="btn-send">
+                    <svg viewBox="0 0 24 24" class="send-icon">
+                        <path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"></path>
+                    </svg>
+                </button>
+            </div>
+        </footer>
+    </div>
+    <script src="app.js"></script>
+</body>
+</html>

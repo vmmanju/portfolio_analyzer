@@ -250,14 +250,22 @@ def get_stock_signal(symbol: str) -> Optional[dict[str, Any]]:
     Load latest composite, momentum, volatility, rank; 3-month trend; regime.
     Return signal dict or None if symbol/data missing.
     """
+    # 1. Normalize symbol aggressively
+    symbol = symbol.strip().upper()
+    if not symbol.endswith(".NS") and "." not in symbol:
+        symbol += ".NS"
+        
     stock_id = _get_stock_id(symbol)
-    if stock_id is None:
-        # Stock is not in the database! Run an on-the-fly dynamic estimation.
+    
+    # 2. Force dynamic fallback if stock is totally missing OR is our 'UNKNOWN' placeholder
+    if stock_id is None or "UNKNOWN" in symbol:
         return _get_dynamic_stock_signal(symbol)
 
     latest = _get_latest_score_and_factor(stock_id)
-    if latest is None:
-        return None
+    
+    # 3. Force dynamic fallback if no scores exist yet for this stock
+    if latest is None or latest.get("composite_score") is None:
+        return _get_dynamic_stock_signal(symbol)
 
     trend = _get_score_trend(stock_id, latest["date"])
     n_stocks = _get_total_stocks_on_date(latest["date"])

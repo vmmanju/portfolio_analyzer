@@ -250,7 +250,7 @@ def _sidebar() -> None:
     
     st.session_state.mode = st.sidebar.radio(
         "Mode",
-        ["Home", "Portfolio Mode", "Stock Mode", "Research Mode", "Portfolio Comparison"],
+        ["Home", "Portfolio Mode", "Stock Mode", "Research Mode", "Portfolio Comparison", "Assistant"],
         index=0,
     )
     st.sidebar.divider()
@@ -2205,8 +2205,8 @@ def main() -> None:
             if st.button("🚪 Logout", key="logout_btn"):
                 st.logout()
 
-    st.title("AI Stock Engine – Research Interface")
-    st.caption("Portfolio | Stock recommendation | Research validation")
+    st.title("AI Stock Engine – Research Interface (V2)")
+    st.caption("Portfolio | Stock recommendation | Research validation | Assistant Enabled")
 
     if st.session_state.mode == "Home":
         render_home_mode()
@@ -2218,9 +2218,104 @@ def main() -> None:
         render_research_mode()
     elif st.session_state.mode == "Portfolio Comparison":
         render_portfolio_comparison()
+    elif st.session_state.mode == "Assistant":
+        render_assistant_mode()
     else:
         # Fallback for any unhandled mode, or initial state before selection
         render_home_mode()
+
+def render_assistant_mode() -> None:
+    st.header("🤖 AI Assistant (V3 - Live Data Patch)")
+    st.markdown("Ask natural language questions about the engine, your portfolios, or stock recommendations.")
+
+    # Status/Diagnostic for LLM
+    from app.assistant.llm_engine import OLLAMA_URL, MODEL_NAME
+    with st.expander("🌐 Engine Connectivity Status"):
+        st.code(f"Ollama URL: {OLLAMA_URL}")
+        import urllib.request
+        import json
+        try:
+            # 1. Check reachability
+            tags_url = OLLAMA_URL.replace("/api/generate", "/api/tags")
+            with urllib.request.urlopen(tags_url, timeout=2) as r:
+                data = json.loads(r.read().decode())
+                st.success("✅ Ollama is Reachable")
+                
+                # 2. Check model existence
+                models = [m.get("name") for m in data.get("models", [])]
+                if any(MODEL_NAME in m for m in models):
+                    st.success(f"🧠 Model '{MODEL_NAME}' is Ready")
+                else:
+                    st.warning(f"⏳ Model '{MODEL_NAME}' is NOT found. It will be pulled on the first query (takes ~1-2 mins).")
+        except Exception as e:
+            st.error(f"❌ Ollama is Unreachable: {e}")
+
+    if "assistant_messages" not in st.session_state:
+        st.session_state.assistant_messages = []
+
+    for msg in st.session_state.assistant_messages:
+        with st.chat_message(msg["role"]):
+            st.markdown(msg["content"])
+            if "details" in msg and msg["details"]:
+                with st.expander("🛠️ Diagnostics & Factors Used"):
+                    st.json(msg["details"])
+
+    if prompt := st.chat_input("Ask me about TCS, hybrid portfolios, or overfitting..."):
+        st.session_state.assistant_messages.append({"role": "user", "content": prompt})
+        with st.chat_message("user"):
+            st.markdown(prompt)
+
+        with st.chat_message("assistant"):
+            with st.spinner("Analyzing engine data..."):
+                from app.assistant.schemas import AssistantRequest
+                from app.assistant.assistant import process_query
+                
+                req = AssistantRequest(user_query=prompt)
+                res = process_query(req)
+                
+                symbol_debug = res.raw_outputs.get("get_stock_summary", {}).get("symbol", "N/A")
+                if symbol_debug == "N/A":
+                    symbol_debug = res.raw_outputs.get("get_stop_loss", {}).get("symbol", "N/A")
+                
+                response_text = f"**Intent:** {res.intent} | **Symbol Detected:** {symbol_debug}\n\n**Analysis:**\n{res.explanation}"
+                st.markdown(response_text)
+                
+                # Check for Chart Data (Price Movement)
+                pm_data = res.raw_outputs.get("get_price_movement", {})
+                if pm_data and "history" in pm_data:
+                    df_chart = pd.DataFrame(pm_data["history"])
+                    df_chart["date"] = pd.to_datetime(df_chart["date"])
+                    
+                    fig = go.Figure()
+                    fig.add_trace(go.Scatter(
+                        x=df_chart["date"], 
+                        y=df_chart["close"],
+                        mode='lines',
+                        name=pm_data.get('symbol', 'Price'),
+                        line=dict(color='#00d4ff', width=2)
+                    ))
+                    fig.update_layout(
+                        title=f"Price Movement: {pm_data.get('symbol')}",
+                        xaxis_title="Date",
+                        yaxis_title="Price",
+                        template="plotly_dark",
+                        height=400,
+                        margin=dict(l=20, r=20, t=40, b=20)
+                    )
+                    st.plotly_chart(fig, use_container_width=True)
+
+                details = {
+                    "functions_called": res.functions_called,
+                    "raw_outputs": res.raw_outputs
+                }
+                with st.expander("🛠️ Diagnostics & Factors Used"):
+                    st.json(details)
+                
+        st.session_state.assistant_messages.append({
+            "role": "assistant", 
+            "content": response_text, 
+            "details": details
+        })
 
 
 if __name__ == "__main__":
