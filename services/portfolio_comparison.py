@@ -24,8 +24,8 @@ import pandas as pd
 import numpy as np
 import concurrent.futures
 
-from services.backtest import run_backtest, construct_portfolio_for_date, get_rebalance_dates, compute_period_returns, calculate_transaction_cost
-from services.portfolio import construct_equal_weight_portfolio, construct_inverse_vol_portfolio, get_latest_scoring_date
+from services.backtest import run_backtest, construct_portfolio_for_date, get_rebalance_dates, compute_period_returns, calculate_transaction_cost, _load_prices_for_stocks
+from services.portfolio import construct_equal_weight_portfolio, construct_inverse_vol_portfolio, get_latest_scoring_date, load_ranked_stocks_batch
 from services.covariance_estimator import robust_covariance_matrix
 from services.return_estimator import shrunk_annualised_returns
 from services.stability_analyzer import compute_rolling_stability
@@ -137,7 +137,7 @@ def _minmax_scalar(val: float, arr: np.ndarray) -> float:
     return float((val - np.nanmin(arr)) / (np.nanmax(arr) - np.nanmin(arr)))
 
 
-def _worker_run_portfolio(p: UserPortfolio, start_date: date, end_date: date, key: str) -> tuple[str, str, dict]:
+def _worker_run_portfolio(p: UserPortfolio, start_date: date, end_date: date, key: str, global_price_cache: pd.DataFrame | None = None, global_ranked_cache: pd.DataFrame | None = None) -> tuple[str, str, dict]:
     # Discard any inherited DB connections from parent process to avoid psycopg2 OperationalErrors during multiprocessing
     from app.database import engine
     engine.dispose(close=False)
@@ -166,6 +166,8 @@ def _worker_run_portfolio(p: UserPortfolio, start_date: date, end_date: date, ke
             end_date=end_date,
             target_vol=target_vol,
             selected_symbols=symbols,
+            global_price_cache=global_price_cache,
+            global_ranked_cache=global_ranked_cache,
         )
 
     # Ensure equity_curve has a daily_return column
@@ -248,7 +250,12 @@ def backtest_user_portfolios(portfolios: List[UserPortfolio], start_date: date, 
         raise ValueError(f"At most {MAX_PORTFOLIOS} portfolios allowed")
 
     results: Dict[str, Dict[str, Any]] = {}
-    to_compute = []
+    to_compute: List[Tuple[UserPortfolio, str]] = []
+    
+    # Identify superset of symbols and dates for optimization
+    all_symbols = set()
+    min_start = start_date
+    max_end = end_date
     
     # We use a module-level lock for cache mutations
     if not hasattr(backtest_user_portfolios, '_cache_lock'):
@@ -262,12 +269,51 @@ def backtest_user_portfolios(portfolios: List[UserPortfolio], start_date: date, 
                 results[p.name] = _BACKTEST_CACHE[key]
             else:
                 to_compute.append((p, key))
+                if p.symbols:
+                    all_symbols.update(p.symbols)
+
+    global_price_cache = None
+    global_ranked_cache = None
 
     if to_compute:
+        # Pre-fetch global data to avoid workers doing it repeatedly
+        try:
+            from app.models import Score
+            from sqlalchemy import select
+            from app.database import get_db_context
+            import bisect
+            
+            with get_db_context() as db:
+                score_stmt = select(Score.date).distinct().order_by(Score.date)
+                all_score_dates = [r[0] for r in db.execute(score_stmt).all()]
+            
+            if all_score_dates:
+                # Find rebalance dates locally to know which score dates to fetch
+                # (Simple approximation: fetch everything in range)
+                relevant_score_dates = [d for d in all_score_dates if (start_date is None or d >= start_date) and (end_date is None or d <= end_date)]
+                if relevant_score_dates:
+                    global_ranked_cache = load_ranked_stocks_batch(relevant_score_dates, selected_symbols=list(all_symbols) if all_symbols else None)
+            
+            # Pricing data (superset of all symbols)
+            if all_symbols:
+                from app.models import Price
+                with get_db_context() as db:
+                    p_end = db.execute(select(Price.date).order_by(Price.date.desc()).limit(1)).scalars().first()
+                if p_end:
+                    global_price_cache = _load_prices_for_stocks(
+                        list([s for s in all_symbols]), 
+                        start_date if start_date else date(2000, 1, 1), 
+                        p_end
+                    )
+        except Exception as e:
+            # Fallback: if global pre-fetch fails, workers will fetch their own data
+            import logging
+            logging.getLogger(__name__).error(f"Global pre-fetch failed: {e}")
+
         if use_multiprocessing:
             executor = concurrent.futures.ProcessPoolExecutor(max_workers=MAX_PORTFOLIOS)
             try:
-                futures = {executor.submit(_worker_run_portfolio, p, start_date, end_date, key): p for p, key in to_compute}
+                futures = {executor.submit(_worker_run_portfolio, p, start_date, end_date, key, global_price_cache, global_ranked_cache): p for p, key in to_compute}
                 for future in concurrent.futures.as_completed(futures):
                     p_name, key, out = future.result()
                     results[p_name] = out
@@ -280,7 +326,7 @@ def backtest_user_portfolios(portfolios: List[UserPortfolio], start_date: date, 
                 executor.shutdown(wait=False)
         else:
             for p, key in to_compute:
-                p_name, key, out = _worker_run_portfolio(p, start_date, end_date, key)
+                p_name, key, out = _worker_run_portfolio(p, start_date, end_date, key, global_price_cache, global_ranked_cache)
                 results[p_name] = out
                 with backtest_user_portfolios._cache_lock:
                     _BACKTEST_CACHE[key] = out

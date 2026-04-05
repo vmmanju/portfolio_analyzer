@@ -16,6 +16,7 @@ if str(_project_root) not in sys.path:
 
 from datetime import date, datetime
 import os
+import bisect
 from typing import Any, Optional
 
 import pandas as pd
@@ -23,7 +24,7 @@ from sqlalchemy import select
 import concurrent.futures
 
 from app.database import get_db_context
-from app.models import Price
+from app.models import Price, Score
 
 from services.backtest import (
     STRATEGY_EQUAL_WEIGHT,
@@ -139,6 +140,35 @@ def _backtest_with_custom_weights(
             how="left",
         )
 
+    # Optimization: pre-calculate score dates for rebalance mapping
+    with get_db_context() as db:
+        all_score_dates = [r[0] for r in db.execute(select(Score.date).distinct().order_by(Score.date)).all()]
+    
+    score_date_cache = {}
+    if all_score_dates:
+        for rb in rebalance_dates:
+            idx = bisect.bisect_right(all_score_dates, rb)
+            score_date_cache[rb] = all_score_dates[idx-1] if idx > 0 else None
+
+    # First pass: find all stocks involved to batch load prices
+    involved_stock_ids = set()
+    for reb_date in rebalance_dates:
+        score_date = score_date_cache.get(reb_date)
+        if score_date:
+            nw = _get_weights_from_ranked(ranked, score_date, top_n, strategy)
+            if nw:
+                involved_stock_ids.update(nw.keys())
+
+    # Batch load ALL prices for involved stocks
+    price_cache = None
+    if involved_stock_ids:
+        p_start = min(rebalance_dates) if rebalance_dates else start_date
+        with get_db_context() as db:
+            p_end = db.execute(select(Price.date).order_by(Price.date.desc()).limit(1)).scalars().first()
+        if p_end:
+            from services.backtest import _load_prices_for_stocks
+            price_cache = _load_prices_for_stocks(list(involved_stock_ids), p_start, p_end)
+
     rebalance_dates = get_rebalance_dates(start_date=start_date, end_date=end_date)
     if len(rebalance_dates) < 2:
         return (
@@ -150,7 +180,7 @@ def _backtest_with_custom_weights(
     old_weights: dict[int, float] = {}
 
     for i, reb_date in enumerate(rebalance_dates):
-        score_date = get_latest_score_date_on_or_before(reb_date)
+        score_date = score_date_cache.get(reb_date)
         if score_date is None:
             continue
         new_weights = _get_weights_from_ranked(ranked, score_date, top_n, strategy)
@@ -161,13 +191,9 @@ def _backtest_with_custom_weights(
         if i + 1 < len(rebalance_dates):
             end_d = rebalance_dates[i + 1]
         else:
-            with get_db_context() as db:
-                row = db.execute(
-                    select(Price.date).order_by(Price.date.desc()).limit(1)
-                ).scalars().first()
-            end_d = row if row else reb_date
+            end_d = p_end if 'p_end' in locals() and p_end else reb_date
 
-        period_returns = compute_period_returns(start_d, end_d, new_weights)
+        period_returns = compute_period_returns(start_d, end_d, new_weights, price_cache=price_cache)
         if period_returns.empty:
             continue
 

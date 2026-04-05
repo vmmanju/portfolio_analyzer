@@ -107,3 +107,20 @@ If moving to a custom domain:
 - The backend `secrets.toml` `redirect_uri` MUST be exactly `https://[YOUR-DOMAIN]/oauth2callback` (e.g., `https://www.jooju.in/oauth2callback`).
 - The **Authorized Redirect URIs** in Google Cloud Console MUST include that exact URI.
 - The **Authorized JavaScript origins** in Google Cloud MUST include the root domain schemas (`https://jooju.in` and `https://www.jooju.in`).
+
+## Related Resources — Lessons RAG
+
+Before deploying or troubleshooting GCP issues, query the project's RAG knowledge base:
+
+```bash
+# From portfolio_analyzer root:
+.venv\Scripts\python .agents/skills/lessons_rag/scripts/rag_engine.py "your question here"
+
+# Useful examples for this skill:
+.venv\Scripts\python .agents/skills/lessons_rag/scripts/rag_engine.py "memory quota cloud run deployment"
+.venv\Scripts\python .agents/skills/lessons_rag/scripts/rag_engine.py "multiprocessing postgres connection child process"
+.venv\Scripts\python .agents/skills/lessons_rag/scripts/rag_engine.py "gcloud windows unicode error upload"
+.venv\Scripts\python .agents/skills/lessons_rag/scripts/rag_engine.py "oauth redirect uri custom domain"
+```
+
+See `.agents/skills/lessons_rag/SKILL.md` for full usage instructions.

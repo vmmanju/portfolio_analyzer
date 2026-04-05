@@ -21,12 +21,12 @@ if str(_project_root) not in sys.path:
     sys.path.insert(0, str(_project_root))
 
 import math
-from datetime import date
-from typing import Any, Optional
-
+import bisect
 import pandas as pd
 import numpy as np
 from sqlalchemy import select
+from datetime import date, timedelta
+from typing import Any, Optional
 
 from app.database import get_db_context
 from app.models import Price, Score
@@ -35,6 +35,7 @@ from services.portfolio import (
     construct_equal_weight_portfolio,
     construct_inverse_vol_portfolio,
     load_ranked_stocks,
+    load_ranked_stocks_batch,
 )
 
 
@@ -118,18 +119,20 @@ def construct_portfolio_for_date(
     top_n: int = 20,
     selected_symbols: list[str] | None = None,
     custom_weights: dict[str, float] | None = None,
+    score_date_cache: dict[date, Optional[date]] | None = None,
+    data_cache: pd.DataFrame | None = None,
 ) -> dict[int, float]:
     """
     Build portfolio weights for a rebalance date using only information available then.
     Uses latest score date on or before rebalance_date (no look-ahead).
     Returns dict stock_id -> weight (sum = 1).
     """
-    score_date = get_latest_score_date_on_or_before(rebalance_date)
+    score_date = score_date_cache.get(rebalance_date) if score_date_cache is not None else get_latest_score_date_on_or_before(rebalance_date)
     if score_date is None:
         return {}
 
     if strategy == "custom" and custom_weights:
-        df_ranked = load_ranked_stocks(score_date, selected_symbols=selected_symbols)
+        df_ranked = load_ranked_stocks(score_date, selected_symbols=selected_symbols, data_cache=data_cache)
         if df_ranked.empty:
             return {}
         alloc_list = []
@@ -143,9 +146,9 @@ def construct_portfolio_for_date(
             if tot > 0:
                 df["weight"] = df["weight"] / tot
     elif strategy == STRATEGY_EQUAL_WEIGHT:
-        df = construct_equal_weight_portfolio(score_date, top_n=top_n, selected_symbols=selected_symbols)
+        df = construct_equal_weight_portfolio(score_date, top_n=top_n, selected_symbols=selected_symbols, data_cache=data_cache)
     elif strategy == STRATEGY_INVERSE_VOL:
-        df = construct_inverse_vol_portfolio(score_date, top_n=top_n, selected_symbols=selected_symbols)
+        df = construct_inverse_vol_portfolio(score_date, top_n=top_n, selected_symbols=selected_symbols, data_cache=data_cache)
     else:
         return {}
 
@@ -191,6 +194,7 @@ def compute_period_returns(
     start_date: date,
     end_date: date,
     weights: dict[int, float],
+    price_cache: pd.DataFrame | None = None,
 ) -> pd.Series:
     """
     Compute daily portfolio returns for [start_date, end_date] using given weights.
@@ -201,7 +205,14 @@ def compute_period_returns(
         return pd.Series(dtype=float)
 
     stock_ids = list(weights.keys())
-    prices = _load_prices_for_stocks(stock_ids, start_date, end_date)
+    
+    if price_cache is not None:
+        # Filter cache for requested stocks and dates
+        mask = (price_cache.index.date >= start_date) & (price_cache.index.date <= end_date)
+        prices = price_cache.loc[mask, price_cache.columns.intersection(stock_ids)]
+    else:
+        prices = _load_prices_for_stocks(stock_ids, start_date, end_date)
+        
     if prices.empty or prices.shape[0] < 2:
         return pd.Series(dtype=float)
 
@@ -283,6 +294,8 @@ def run_backtest(
     leverage_max: float = LEVERAGE_MAX,
     selected_symbols: list[str] | None = None,
     custom_weights: dict[str, float] | None = None,
+    global_price_cache: pd.DataFrame | None = None,
+    global_ranked_cache: pd.DataFrame | None = None,
 ) -> tuple[pd.DataFrame, dict[str, Any]]:
     """
     Run full backtest: monthly rebalance, weighted daily returns, transaction costs.
@@ -301,6 +314,53 @@ def run_backtest(
             {},
         )
 
+    # Optimization: pre-calculate score dates for all rebalance dates
+    with get_db_context() as db:
+        score_stmt = select(Score.date).distinct().order_by(Score.date)
+        all_score_dates = [r[0] for r in db.execute(score_stmt).all()]
+    
+    score_date_cache = {}
+    if all_score_dates:
+        for rb in rebalance_dates:
+            idx = bisect.bisect_right(all_score_dates, rb)
+            score_date_cache[rb] = all_score_dates[idx-1] if idx > 0 else None
+
+    # Optimization: Batch load all rankings for the involved dates
+    if global_ranked_cache is not None:
+        ranked_data_cache = global_ranked_cache
+    else:
+        unique_score_dates = list(set(d for d in score_date_cache.values() if d is not None))
+        ranked_data_cache = load_ranked_stocks_batch(unique_score_dates, selected_symbols=selected_symbols)
+
+    # First pass: find all stocks involved to batch load prices
+    involved_stock_ids = set()
+    for reb_date in rebalance_dates:
+        new_weights = construct_portfolio_for_date(
+            reb_date, strategy, top_n=top_n, 
+            selected_symbols=selected_symbols, 
+            custom_weights=custom_weights,
+            score_date_cache=score_date_cache,
+            data_cache=ranked_data_cache
+        )
+        involved_stock_ids.update(new_weights.keys())
+
+    # Batch load ALL prices for involved stocks
+    price_cache_to_use = None
+    if global_price_cache is not None:
+        price_cache_to_use = global_price_cache
+    elif involved_stock_ids:
+        # Find start/end range for prices
+        p_start = min(rebalance_dates)
+        # Last period: extend to last available price date
+        with get_db_context() as db:
+            p_end = db.execute(select(Price.date).order_by(Price.date.desc()).limit(1)).scalars().first()
+        if p_end:
+            price_cache_to_use = _load_prices_for_stocks(list(involved_stock_ids), p_start, p_end)
+    else:
+        # Need p_end for the loop anyway
+        with get_db_context() as db:
+            p_end = db.execute(select(Price.date).order_by(Price.date.desc()).limit(1)).scalars().first()
+
     # Build daily return series over all periods
     daily_returns_list: list[pd.Series] = []
     old_weights: dict[int, float] = {}
@@ -310,23 +370,27 @@ def run_backtest(
         import time
         time.sleep(0.0) # Yield slightly to signal handler
         
-        new_weights = construct_portfolio_for_date(reb_date, strategy, top_n=top_n, selected_symbols=selected_symbols, custom_weights=custom_weights)
+        new_weights = construct_portfolio_for_date(
+            reb_date, strategy, top_n=top_n, 
+            selected_symbols=selected_symbols, 
+            custom_weights=custom_weights,
+            score_date_cache=score_date_cache,
+            data_cache=ranked_data_cache
+        )
         if not new_weights:
             continue
 
         start_d = reb_date
-        end_d = rebalance_dates[i + 1] if i + 1 < len(rebalance_dates) else rebalance_dates[-1]
         if i + 1 < len(rebalance_dates):
             end_d = rebalance_dates[i + 1]
         else:
-            # Last period: extend to last available price date
-            with get_db_context() as db:
-                row = db.execute(
-                    select(Price.date).order_by(Price.date.desc()).limit(1)
-                ).scalars().first()
-            end_d = row if row else reb_date
+            # use globally found p_end if possible, otherwise re-fetch
+            if 'p_end' not in locals() or p_end is None:
+                with get_db_context() as db:
+                     p_end = db.execute(select(Price.date).order_by(Price.date.desc()).limit(1)).scalars().first()
+            end_d = p_end if p_end else reb_date
 
-        period_returns = compute_period_returns(start_d, end_d, new_weights)
+        period_returns = compute_period_returns(start_d, end_d, new_weights, price_cache=price_cache_to_use)
         if period_returns.empty:
             continue
 
@@ -397,18 +461,31 @@ def run_backtest(
     # Calculate Average Pairwise Correlation of holdings (Diversification metric)
     avg_corr = 0.5
     try:
-        all_stock_ids = set()
-        for i, reb_date in enumerate(rebalance_dates):
-            weights = construct_portfolio_for_date(reb_date, strategy, top_n=top_n, selected_symbols=selected_symbols, custom_weights=custom_weights)
-            all_stock_ids.update(weights.keys())
-        
-        if all_stock_ids:
-            prices = _load_prices_for_stocks(list(all_stock_ids), full_returns.index.min().date(), full_returns.index.max().date())
+        # Use existing cache if available
+        if price_cache_to_use is not None and not price_cache_to_use.empty:
+            prices = price_cache_to_use.loc[full_returns.index.min():full_returns.index.max()]
             if not prices.empty and prices.shape[1] > 1:
                 corr_matrix = prices.pct_change().corr()
-                # Average of off-diagonal elements
                 upper_tri_indices = np.triu_indices_from(corr_matrix, k=1)
                 avg_corr = float(corr_matrix.values[upper_tri_indices].mean())
+        else:
+            all_stock_ids = set()
+            for i, reb_date in enumerate(rebalance_dates):
+                weights = construct_portfolio_for_date(
+                    reb_date, strategy, top_n=top_n, 
+                    selected_symbols=selected_symbols, 
+                    custom_weights=custom_weights,
+                    score_date_cache=score_date_cache
+                )
+                all_stock_ids.update(weights.keys())
+            
+            if all_stock_ids:
+                prices = _load_prices_for_stocks(list(all_stock_ids), full_returns.index.min().date(), full_returns.index.max().date())
+                if not prices.empty and prices.shape[1] > 1:
+                    corr_matrix = prices.pct_change().corr()
+                    # Average of off-diagonal elements
+                    upper_tri_indices = np.triu_indices_from(corr_matrix, k=1)
+                    avg_corr = float(corr_matrix.values[upper_tri_indices].mean())
     except Exception:
         pass
 

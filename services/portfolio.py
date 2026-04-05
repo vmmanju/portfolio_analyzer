@@ -41,12 +41,22 @@ def get_latest_scoring_date() -> Optional[date]:
     return row
 
 
-def load_ranked_stocks(as_of_date: date, selected_symbols: list[str] | None = None) -> pd.DataFrame:
+def load_ranked_stocks(as_of_date: date, selected_symbols: list[str] | None = None, sector: str | None = None, data_cache: pd.DataFrame | None = None) -> pd.DataFrame:
     """
     Join scores, stocks, and factors for the given date.
     Returns DataFrame with stock_id, symbol, sector, composite_score, rank, volatility_score,
     sorted by rank ascending.
     """
+    if data_cache is not None:
+        # Filter cache
+        mask = (data_cache["date"] == as_of_date)
+        df = data_cache.loc[mask].copy()
+        if selected_symbols:
+            df = df[df["symbol"].in_(selected_symbols)]
+        if sector:
+            df = df[df["sector"].str.contains(sector, case=False, na=False)]
+        return df.sort_values("rank").reset_index(drop=True)
+
     with get_db_context() as db:
         stmt = (
             select(
@@ -64,6 +74,10 @@ def load_ranked_stocks(as_of_date: date, selected_symbols: list[str] | None = No
             )
             .where(Score.date == as_of_date)
         )
+
+        if sector:
+            # Case-insensitive partial match for sector
+            stmt = stmt.where(Stock.sector.ilike(f"%{sector}%"))
 
         if selected_symbols:
             # Map symbols -> ids and filter
@@ -94,12 +108,13 @@ def construct_equal_weight_portfolio(
     as_of_date: date,
     top_n: int = 20,
     selected_symbols: list[str] | None = None,
+    data_cache: pd.DataFrame | None = None,
 ) -> pd.DataFrame:
     """
     Select top_n ranked stocks and assign equal weight 1/n.
     Returns DataFrame with columns stock_id, weight. Validates sum(weights) ≈ 1.
     """
-    df = load_ranked_stocks(as_of_date, selected_symbols=selected_symbols)
+    df = load_ranked_stocks(as_of_date, selected_symbols=selected_symbols, data_cache=data_cache)
     if df.empty:
         return pd.DataFrame(columns=["stock_id", "weight"])
 
@@ -118,12 +133,13 @@ def construct_inverse_vol_portfolio(
     as_of_date: date,
     top_n: int = 20,
     selected_symbols: list[str] | None = None,
+    data_cache: pd.DataFrame | None = None,
 ) -> pd.DataFrame:
     """
     Select top_n ranked stocks. Weight ∝ 1 / (volatility_score + offset), then normalize.
     Stocks with missing volatility_score are skipped. Returns DataFrame with stock_id, weight.
     """
-    df = load_ranked_stocks(as_of_date, selected_symbols=selected_symbols)
+    df = load_ranked_stocks(as_of_date, selected_symbols=selected_symbols, data_cache=data_cache)
     if df.empty:
         return pd.DataFrame(columns=["stock_id", "weight"])
 
@@ -257,6 +273,55 @@ def run_portfolio_construction() -> None:
             print(f"  {name}: sum(weights) = {s:.6f}  (expect 1.0)")
     print("---")
     print("Portfolio construction complete.")
+
+
+def load_ranked_stocks_batch(
+    as_of_dates: list[date], 
+    selected_symbols: list[str] | None = None
+) -> pd.DataFrame:
+    """Batch version to fetch rankings for multiple dates in one query."""
+    if not as_of_dates:
+        return pd.DataFrame()
+
+    with get_db_context() as db:
+        stmt = (
+            select(
+                Score.date,
+                Score.stock_id,
+                Stock.symbol,
+                Stock.sector,
+                Score.composite_score,
+                Score.rank,
+                Factor.volatility_score,
+            )
+            .join(Stock, Stock.id == Score.stock_id)
+            .outerjoin(
+                Factor,
+                (Factor.stock_id == Score.stock_id) & (Factor.date == Score.date),
+            )
+            .where(Score.date.in_(as_of_dates))
+        )
+
+        if selected_symbols:
+            # Map symbols -> ids just once
+            ids_stmt = select(Stock.id).where(Stock.symbol.in_(selected_symbols))
+            ids = [r[0] for r in db.execute(ids_stmt).all()]
+            if ids:
+                stmt = stmt.where(Score.stock_id.in_(ids))
+            else:
+                return pd.DataFrame()
+
+        rows = db.execute(stmt).all()
+
+    if not rows:
+        return pd.DataFrame()
+
+    df = pd.DataFrame(
+        rows,
+        columns=["date", "stock_id", "symbol", "sector", "composite_score", "rank", "volatility_score"],
+    )
+    df["date"] = pd.to_datetime(df["date"]).dt.date
+    return df
 
 
 if __name__ == "__main__":
