@@ -26,20 +26,25 @@ INTENTS_LIST = [
     "Automatic N Explanation",
     "Governance Check",
     "Calibration Explanation",
-    "Stability Diagnostic"
+    "Stability Diagnostic",
+    "Sector Ranking"
 ]
 
 def _ensure_model():
     """Check if model exists, if not pull it."""
     try:
         check_url = OLLAMA_URL.replace("/api/generate", "/api/tags")
-        with urllib.request.urlopen(check_url, timeout=5) as response:
+        with urllib.request.urlopen(check_url, timeout=2) as response:
             data = json.loads(response.read().decode())
             models = [m.get("name") for m in data.get("models", [])]
             if any(MODEL_NAME in m for m in models):
                 return True
-    except Exception:
-        pass
+    except urllib.error.URLError as e:
+        logger.warning(f"Ollama server unreachable or tags failed: {e}")
+        return False
+    except Exception as e:
+        logger.warning(f"Ollama tags endpoint error: {e}")
+        return False
         
     logger.info(f"Pulling model {MODEL_NAME}...")
     try:
@@ -54,7 +59,8 @@ def _ensure_model():
 
 def _call_ollama(prompt: str, json_format: bool = False, system_prompt: str = "") -> str:
     """Wrapper to make an HTTP request to the local Ollama instance."""
-    _ensure_model()
+    if not _ensure_model():
+        return ""
     payload = {
         "model": MODEL_NAME,
         "prompt": prompt,
@@ -97,16 +103,18 @@ def llm_route_query(user_query: str) -> Tuple[str, str, str, List[str]]:
     {json.dumps(INTENTS_LIST)}
     
     GUIDELINES:
-    1. If the user asks for a general list of stocks (e.g. 'Recommend 10 stocks', 'Top 5 performers'), use 'Market Overview' intent.
+    1. If the user asks for a general or market-wide list of stocks with NO mention of sectors (e.g. 'Recommend 10 stocks', 'Top 5 performers'), use 'Market Overview' intent.
     2. If the user mentions a specific stock/company:
        - Extract the PRIMARY ticker symbol (e.g. 'Reliance' -> 'RELIANCE.NS', 'Larsen and Toubro' -> 'LT.NS', 'TCS' -> 'TCS.NS').
        - If you are unsure of the ticker, provide the Most Likely NSE ticker followed by '.NS'.
        - Put the result in the "symbol" field.
     3. If the user provides MULTIPLE stocks or asks to COMPARE multiple stocks (e.g. 'Compare TCS and INFY', 'Review TCS, INFY, SBIN'), use 'Multi-Stock Review' and put them ALL in "symbols".
     4. If the intent is 'Portfolio Review' and they mention a named portfolio, extract it into "portfolio_name".
-    5. ONLY use 'Portfolio Comparison' if the user explicitly asks to compare "portfolios" or "strategies" (e.g., 'compare my saved portfolios').
+    5. If the user asks about a SECTOR (e.g. 'Technology', 'Financials', 'Energy', 'Healthcare'), extract the sector name into the "sector" field.
+    6. ONLY use 'Portfolio Comparison' if the user explicitly asks to compare "portfolios" or "strategies" (e.g., 'compare my saved portfolios').
+    7. If the user asks for a RANKING OF SECTORS, top sectors, or sector performance comparison (e.g. 'Show me top 10 sectors', 'Which sectors are best?', 'List top sectors and stocks from each'), use 'Sector Ranking' intent. This intent ALWAYS overrides 'Market Overview' if the word 'sector' is the primary grouping or focus.
     
-    Output strictly valid JSON with keys: "intent", "symbol", "portfolio_name", "symbols".
+    Output strictly valid JSON with keys: "intent", "symbol", "portfolio_name", "symbols", "sector".
     "symbols" should be an array of strings.
     """
     
@@ -114,7 +122,7 @@ def llm_route_query(user_query: str) -> Tuple[str, str, str, List[str]]:
     
     response = _call_ollama(prompt, json_format=True, system_prompt=system_prompt)
     if not response:
-        return "", "", "", []
+        return "", "", "", [], ""
         
     try:
         data = json.loads(response)
@@ -122,14 +130,15 @@ def llm_route_query(user_query: str) -> Tuple[str, str, str, List[str]]:
         symbol = data.get("symbol", "")
         portfolio_name = data.get("portfolio_name", "")
         symbols = data.get("symbols", [])
+        sector = data.get("sector", "")
         
         # Validation mapping
         if intent not in INTENTS_LIST:
             intent = "" # force fallback
             
-        return intent, symbol, portfolio_name, symbols
+        return intent, symbol, portfolio_name, symbols, sector
     except Exception:
-        return "", "", "", []
+        return "", "", "", [], ""
 
 def llm_generate_explanation(intent: str, user_query: str, engine_data: Dict[str, Any]) -> str:
     """
@@ -146,6 +155,7 @@ def llm_generate_explanation(intent: str, user_query: str, engine_data: Dict[str
     4. If explaining "why" a score is high or low, explicitly reference the sub-components found in the JSON data.
     5. Be extremely crisp and professional.
     6. IMPORTANT FOR RANKS: A mathematically smaller rank (e.g. 1) is a BETTER ("higher") structural rank than a larger number (e.g. 200). So Rank 106 is fundamentally better than Rank 217.
+    7. FOR SECTOR RANKINGS: Ensure you include the core performance metrics (CAGR, Sharpe, Avg Score) for each sector mentioned.
     """
     
     prompt = f"User Query: {user_query}\n\nEngine Data JSON:\n```json\n{json.dumps(engine_data, indent=2)}\n```\n\nGenerate the response:"

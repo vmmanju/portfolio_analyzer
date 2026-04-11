@@ -83,10 +83,25 @@ def generate_market_overview_explanation(market_data: Dict[str, Any]) -> str:
     stocks = market_data.get("stocks", [])
     if not stocks:
         return "No stocks found in the current market ranking."
-    parts = ["Top stocks in the current market:\n"]
-    for s in stocks[:10]:
+
+    date_label = market_data.get("date", "latest scoring date")
+    n = len(stocks)
+    parts = [f"### Top {n} Stocks - Market Overview (as of {date_label})\n"]
+    parts.append("| Rank | Symbol | Composite Score | Volatility Score |")
+    parts.append("| :--- | :----- | :-------------- | :--------------- |")
+    for s in stocks:
         score = s.get("composite_score", s.get("score", 0.0))
-        parts.append(f"- {s['symbol']} (Rank: {s.get('rank', 'N/A')}, Score: {score:.1f})")
+        vol = s.get("volatility_score", "N/A")
+        vol_str = f"{vol:.2f}" if isinstance(vol, (int, float)) else str(vol)
+        parts.append(f"| {s.get('rank', 'N/A')} | **{s['symbol']}** | {score:.3f} | {vol_str} |")
+
+    parts.append("")
+    parts.append("**Summary:**")
+    if stocks:
+        top = stocks[0]
+        parts.append(f"- **{top['symbol']}** leads the universe with a composite score of {top.get('composite_score', top.get('score', 0.0)):.3f}.")
+    parts.append("- Rankings are updated each scoring cycle based on momentum, quality, value, and volatility factors.")
+    parts.append("- Use *Portfolio Mode* to backtest a portfolio built from these top-ranked stocks.")
     return "\n".join(parts)
 
 def generate_governance_explanation(gov_data: Dict[str, Any]) -> str:
@@ -136,3 +151,44 @@ def generate_portfolio_review_explanation(review_data: Dict[str, Any]) -> str:
     parts.append(f"- {hold_count} stocks are in **Hold** status.")
     
     return "\n".join(parts)
+
+def generate_sector_ranking_explanation(sector_data: Dict[str, Any]) -> str:
+    if "error" in sector_data:
+        return f"**Error:** {sector_data['error']}"
+        
+    rankings = sector_data.get("rankings", [])
+    period = sector_data.get("period", "N/A")
+    
+    if not rankings:
+        return "No sector rankings found for the current period."
+    
+    # Check if we have per-sector stock data
+    has_stocks = any("top_stocks" in r for r in rankings)
+    
+    if has_stocks:
+        # Detailed view: table + stocks under each sector
+        parts = [f"### Top Sector Rankings (Period: {period})\n"]
+        for r in rankings:
+            parts.append(f"**{r['rank']}. {r['sector']}** - CAGR: {r['cagr']}% | Sharpe: {r['sharpe']} | Avg Score: {r['avg_score']} | Total Stocks: {r['n_stocks']}")
+            top_stocks = r.get("top_stocks", [])
+            if top_stocks:
+                for s in top_stocks:
+                    parts.append(f"   - **{s['symbol']}** (Rank: #{s['rank']}, Score: {s['score']})")
+            else:
+                parts.append("   - *(No ranked stocks available for this sector)*")
+            parts.append("")  # blank line between sectors
+    else:
+        # Summary table view (no per-sector stocks requested)
+        parts = [f"### Top Sector Rankings (Period: {period})\n"]
+        parts.append("| Rank | Sector | Stocks | CAGR | Sharpe | Avg Score |")
+        parts.append("| :--- | :--- | :--- | :--- | :--- | :--- |")
+        for r in rankings:
+            parts.append(f"| {r['rank']} | {r['sector']} | {r['n_stocks']} | {r['cagr']}% | {r['sharpe']} | {r['avg_score']} |")
+        
+    parts.append("\n**Summary:**")
+    top_sector = rankings[0]['sector'] if rankings else "N/A"
+    parts.append(f"- **{top_sector}** is currently the top-performing sector by CAGR over this period.")
+    parts.append("- Rankings are based on an equal-weighted portfolio of all stocks within each sector.")
+    
+    return "\n".join(parts)
+

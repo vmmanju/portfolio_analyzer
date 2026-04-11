@@ -17,7 +17,8 @@ class IntentRouter:
         "automatic_n": [r"(?i)\b(automatic\s*n|how many stocks|12|13|choose)\b"],
         "governance_check": [r"(?i)\b(overfitting|governance|bias)\b"],
         "calibration": [r"(?i)\b(calibration|drift|coefficients)\b"],
-        "stability": [r"(?i)\b(stability|rolling|turnover)\b"]
+        "stability": [r"(?i)\b(stability|rolling|turnover)\b"],
+        "sector_ranking": [r"(?i)\b(top|best|rank|ranking)\b.*\b(sectors)\b"]
     }
 
     @classmethod
@@ -51,20 +52,27 @@ class IntentRouter:
         """
         from app.assistant.llm_engine import llm_route_query
         
-        llm_intent, llm_symbol, llm_portfolio, llm_symbols = llm_route_query(query)
+        llm_intent, llm_symbol, llm_portfolio, llm_symbols, llm_sector = llm_route_query(query)
         intent = ""
         symbol = "UNKNOWN"
         portfolio_name = ""
         symbols_list = []
+        sector = ""
         
         if llm_intent:
             intent = llm_intent
             symbol = llm_symbol if llm_symbol else cls.extract_symbol(query)
             portfolio_name = llm_portfolio
             symbols_list = llm_symbols
+            sector = llm_sector
+            
+            # Deterministic override: if user asks for top N stocks, force Market Overview
+            if re.search(r'(?:list\s+|show\s+)?top\s+(\d+)', query, re.IGNORECASE) and not re.search(r'\bsectors?\b', query, re.IGNORECASE):
+                intent = "Market Overview"
         else:
             # Fallback to Regex
-            if any(re.search(p, query, re.IGNORECASE) for p in [r"recommend.*stocks", r"top\s+\d+", r"best.*stocks"]): intent = "Market Overview"
+            if any(re.search(p, query, re.IGNORECASE) for p in cls.INTENT_MAPPINGS["sector_ranking"]): intent = "Sector Ranking"
+            elif any(re.search(p, query, re.IGNORECASE) for p in [r"recommend.*stocks", r"top\s+\d+", r"best.*stocks", r"list.*top"]): intent = "Market Overview"
             elif any(re.search(p, query) for p in cls.INTENT_MAPPINGS["automatic_n"]): intent = "Automatic N Explanation"
             elif any(re.search(p, query) for p in cls.INTENT_MAPPINGS["hybrid_portfolio"]): intent = "Hybrid Portfolio Request"
             elif any(re.search(p, query) for p in cls.INTENT_MAPPINGS["portfolio_comparison"]): intent = "Portfolio Comparison"
@@ -94,9 +102,19 @@ class IntentRouter:
         elif intent == "Market Overview":
             n_match = re.search(r'top\s+(\d+)', query.lower())
             top_n = int(n_match.group(1)) if n_match else 10
-            return intent, [{"list_stocks": {"top_n": top_n}}]
+            return intent, [{"list_stocks": {"top_n": top_n, "sector": sector}}]
         elif intent == "Portfolio Comparison":
             return intent, [{"compare_portfolios": {}}]
+        elif intent == "Sector Ranking":
+            n_match = re.search(r'(?:top|best)\s+(\d+)\s+sectors?', query.lower())
+            if not n_match:
+                n_match = re.search(r'(?:top|best)\s+(\d+)', query.lower())
+            top_n = int(n_match.group(1)) if n_match else 10
+            
+            s_match = re.search(r'(\d+)\s+stocks?', query.lower())
+            stocks_per_sector = int(s_match.group(1)) if s_match else 0
+            
+            return intent, [{"get_sector_rankings": {"top_n": top_n, "stocks_per_sector": stocks_per_sector}}]
         elif intent == "Portfolio Review":
             return intent, [{"get_portfolio_review": {"portfolio_name": portfolio_name}}]
         elif intent == "Multi-Stock Review":

@@ -277,8 +277,9 @@ def list_stocks(params: Dict[str, Any] = None) -> Dict[str, Any]:
     from services.portfolio import load_ranked_stocks, get_latest_scoring_date
     try:
         top_n = int(params.get("top_n", 10))
+        sector = params.get("sector")
         latest = get_latest_scoring_date()
-        df = load_ranked_stocks(latest)
+        df = load_ranked_stocks(latest, sector=sector)
         df_top = df.head(top_n)
         
         stocks = []
@@ -286,11 +287,14 @@ def list_stocks(params: Dict[str, Any] = None) -> Dict[str, Any]:
             stocks.append({
                 "symbol": row["symbol"],
                 "composite_score": round(row["composite_score"] * 100, 2),
+                "volatility_score": round(float(row["volatility_score"]) * 100, 2) if "volatility_score" in row and row["volatility_score"] is not None else "N/A",
                 "rank": row["rank"]
             })
-        return {"stocks": stocks, "count": len(stocks)}
+        date_str = latest.isoformat() if latest else "N/A"
+        return {"stocks": stocks, "count": len(stocks), "date": date_str}
     except Exception as e:
         return {"error": str(e)}
+
 
 def get_price_movement(params: Dict[str, Any]) -> Dict[str, Any]:
     from services.data_fetcher import fetch_price_data
@@ -403,6 +407,71 @@ def get_multi_stock_review(params: Dict[str, Any]) -> Dict[str, Any]:
     except Exception as e:
         return {"error": str(e)}
 
+def get_sector_rankings(params: Dict[str, Any] = None) -> Dict[str, Any]:
+    from services.sector_analytics import compute_sector_relative_performance
+    from services.portfolio import get_latest_scoring_date, load_ranked_stocks
+    from datetime import date, timedelta
+    import pandas as pd
+    try:
+        top_n = int(params.get("top_n", 10)) if params else 10
+        stocks_per_sector = int(params.get("stocks_per_sector", 0)) if params else 0
+        latest = get_latest_scoring_date()
+        if not latest:
+            latest = date.today()
+            
+        # Default lookback of 180 days for sector performance
+        start_date = latest - timedelta(days=180)
+        
+        df = compute_sector_relative_performance(
+            start_date=start_date,
+            end_date=latest,
+            scoring_date=latest
+        )
+        
+        if df.empty:
+            return {"error": "No sector data available for the requested period."}
+            
+        # If requested, fetch top stocks per sector
+        ranked_df = pd.DataFrame()
+        if stocks_per_sector > 0:
+            ranked_df = load_ranked_stocks(latest)
+            
+        # Filter to top_n and convert to list of dicts
+        df_top = df.head(top_n)
+        rankings = []
+        for i, row in df_top.iterrows():
+            sector_name = row["sector"]
+            sector_info = {
+                "rank": i + 1,
+                "sector": sector_name,
+                "n_stocks": int(row["n_stocks"]),
+                "cagr": round(float(row["cagr"]) * 100, 2),
+                "sharpe": round(float(row["sharpe"]), 2),
+                "max_drawdown": round(float(row["max_drawdown"]) * 100, 2),
+                "avg_score": round(float(row["avg_score"]) * 100, 2)
+            }
+            
+            if stocks_per_sector > 0 and not ranked_df.empty:
+                s_df = ranked_df[ranked_df["sector"] == sector_name].head(stocks_per_sector)
+                top_stocks = []
+                for _, s_row in s_df.iterrows():
+                    top_stocks.append({
+                        "symbol": s_row["symbol"],
+                        "rank": s_row["rank"],
+                        "score": round(s_row["composite_score"] * 100, 2)
+                    })
+                sector_info["top_stocks"] = top_stocks
+                
+            rankings.append(sector_info)
+            
+        return {
+            "rankings": rankings,
+            "period": f"{start_date} to {latest}",
+            "count": len(rankings)
+        }
+    except Exception as e:
+        return {"error": str(e)}
+
 def get_latest_calibration(params: Dict[str, Any] = None) -> Dict[str, Any]:
     from app.api.routers.calibration import get_latest_calibration as get_cal
     try:
@@ -425,5 +494,6 @@ REGISTRY = {
     "list_stocks": list_stocks,
     "get_price_movement": get_price_movement,
     "get_portfolio_review": get_portfolio_review,
-    "get_multi_stock_review": get_multi_stock_review
+    "get_multi_stock_review": get_multi_stock_review,
+    "get_sector_rankings": get_sector_rankings
 }
