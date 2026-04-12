@@ -43,6 +43,9 @@ class User(Base):
     portfolios: Mapped[List["UserPortfolio"]] = relationship(
         "UserPortfolio", back_populates="user", cascade="all, delete-orphan"
     )
+    tracker_positions: Mapped[List["PortfolioTrackerPosition"]] = relationship(
+        "PortfolioTrackerPosition", back_populates="user", cascade="all, delete-orphan"
+    )
 
     def __repr__(self) -> str:
         return f"<User(id={self.id}, email={self.email!r})>"
@@ -78,6 +81,9 @@ class Stock(Base):
     )
     monthly_allocations: Mapped[List["MonthlyAllocation"]] = relationship(
         "MonthlyAllocation", back_populates="stock", cascade="all, delete-orphan"
+    )
+    tracker_positions: Mapped[List["PortfolioTrackerPosition"]] = relationship(
+        "PortfolioTrackerPosition", back_populates="stock", cascade="all, delete-orphan"
     )
 
     def __repr__(self) -> str:
@@ -241,6 +247,38 @@ class UserPortfolioStock(Base):
 # ─────────────────────────────────────────────────────────────────────────────
 # NEW: Monthly allocation persistence
 # ─────────────────────────────────────────────────────────────────────────────
+
+class PortfolioTrackerPosition(Base):
+    """User-maintained portfolio tracker rows for live invested vs. current value."""
+
+    __tablename__ = "portfolio_tracker_positions"
+    __table_args__ = (
+        UniqueConstraint("user_id", "symbol", name="uq_portfolio_tracker_user_symbol"),
+        Index("ix_portfolio_tracker_user_symbol", "user_id", "symbol"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    user_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), nullable=True, index=True,
+    )
+    stock_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("stocks.id", ondelete="SET NULL"), nullable=True, index=True,
+    )
+    symbol: Mapped[str] = mapped_column(String(32), nullable=False)
+    invested_amount: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    quantity: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    user: Mapped[Optional["User"]] = relationship("User", back_populates="tracker_positions")
+    stock: Mapped[Optional["Stock"]] = relationship("Stock", back_populates="tracker_positions")
+
+    def __repr__(self) -> str:
+        return (
+            f"<PortfolioTrackerPosition(id={self.id}, user_id={self.user_id}, "
+            f"symbol={self.symbol!r}, invested_amount={self.invested_amount}, quantity={self.quantity})>"
+        )
+
 
 class MonthlyAllocation(Base):
     """Persisted weight per stock for each monthly portfolio rebalance.

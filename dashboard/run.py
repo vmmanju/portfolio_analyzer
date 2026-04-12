@@ -62,6 +62,7 @@ import os
 from services.universe_loader import load_nse_top_100, sync_universe_with_db
 from services import portfolio_comparison as pc
 from services import user_portfolios as up_store
+from services import portfolio_tracker as pt_store
 from services import sector_analytics as sa
 from app.auth import require_login
 from app.config import settings
@@ -230,6 +231,12 @@ def _init_session_state() -> None:
         st.session_state.pm_allocations = {}   # name -> allocation result dict
     if "pm_backtest_results" not in st.session_state:
         st.session_state.pm_backtest_results = {}  # name -> {curve, summary}
+    if "pm_tracker_rows" not in st.session_state:
+        try:
+            _uid = st.session_state.get("user_id")
+            st.session_state.pm_tracker_rows = pt_store.load_tracked_positions(user_id=_uid)
+        except Exception:
+            st.session_state.pm_tracker_rows = []
     # Hybrid auto portfolio settings
     if "include_hybrid_portfolio" not in st.session_state:
         st.session_state.include_hybrid_portfolio = False
@@ -486,6 +493,7 @@ def render_portfolio_mode() -> None:
 
     available = _cached_available_symbols()
     today_str = str(_date.today())
+    user_id = st.session_state.get("user_id")
 
     pm_portfolios: list = st.session_state.get("pm_portfolios", [])
     if not pm_portfolios:
@@ -516,6 +524,138 @@ def render_portfolio_mode() -> None:
 
     start_date = st.session_state.get("start_date")
     end_date = st.session_state.get("end_date")
+
+    st.markdown("##### Portfolio Tracker")
+    st.caption(
+        "Track your invested amount against the latest value in the database. "
+        "Quantity is used to calculate the current amount for each stock."
+    )
+
+    tracker_seed = st.session_state.get("pm_tracker_rows", [])
+    tracker_df = pd.DataFrame(tracker_seed)
+    if tracker_df.empty:
+        tracker_df = pd.DataFrame(columns=pt_store.TRACKER_COLUMNS)
+    for _col in pt_store.TRACKER_COLUMNS:
+        if _col not in tracker_df.columns:
+            tracker_df[_col] = None
+    tracker_df = tracker_df[pt_store.TRACKER_COLUMNS]
+
+    with st.expander("📌 Tracked Holdings", expanded=True):
+        edited_tracker_df = st.data_editor(
+            tracker_df,
+            hide_index=True,
+            num_rows="dynamic",
+            use_container_width=True,
+            key="pm_tracker_editor",
+            column_config={
+                "symbol": st.column_config.SelectboxColumn(
+                    "Stock",
+                    options=available,
+                    required=False,
+                    help="Pick a stock available in the analyzer universe.",
+                ),
+                "invested_amount": st.column_config.NumberColumn(
+                    "Invested Amount",
+                    min_value=0.0,
+                    step=100.0,
+                    format="%.2f",
+                    help="Total capital invested in this stock.",
+                ),
+                "quantity": st.column_config.NumberColumn(
+                    "Quantity",
+                    min_value=0.0001,
+                    step=1.0,
+                    format="%.4f",
+                    help="Number of shares or units held.",
+                ),
+            },
+        )
+        tracker_rows = pt_store.normalize_tracker_positions(edited_tracker_df)
+        st.session_state.pm_tracker_rows = tracker_rows
+
+        tc1, tc2 = st.columns(2)
+        if tc1.button("💾 Save Tracker"):
+            try:
+                saved_positions = pt_store.save_tracked_positions(tracker_rows, user_id=user_id)
+                st.session_state.pm_tracker_rows = saved_positions
+                st.success(f"Saved {len(saved_positions)} tracked position(s).")
+            except Exception as exc:
+                st.error(f"Tracker save failed: {exc}")
+        if tc2.button("🔄 Reload Tracker"):
+            try:
+                st.session_state.pm_tracker_rows = pt_store.load_tracked_positions(user_id=user_id)
+                _safe_rerun()
+            except Exception as exc:
+                st.error(f"Tracker reload failed: {exc}")
+
+    tracker_snapshot = pt_store.build_tracker_snapshot(tracker_rows, user_id=user_id)
+    tracker_positions_df = tracker_snapshot.get("positions_df", pd.DataFrame())
+    tracker_summary = tracker_snapshot.get("summary", {})
+    missing_tracker_prices = tracker_snapshot.get("missing_prices", [])
+
+    if not tracker_positions_df.empty:
+        tm1, tm2, tm3, tm4 = st.columns(4)
+        total_pnl = tracker_summary.get("total_pnl", 0.0)
+        pnl_pct = tracker_summary.get("total_pnl_pct")
+        pnl_delta = f"{pnl_pct:.2%}" if pnl_pct is not None else None
+        tm1.metric("Total Invested", f"₹{tracker_summary.get('total_invested', 0.0):,.2f}")
+        tm2.metric("Current Value", f"₹{tracker_summary.get('total_current', 0.0):,.2f}")
+        tm3.metric("Profit / Loss", f"₹{total_pnl:,.2f}", delta=pnl_delta)
+        tm4.metric(
+            "Priced Positions",
+            f"{tracker_summary.get('priced_positions', 0)}/{tracker_summary.get('total_positions', 0)}",
+        )
+        latest_price_date = tracker_summary.get("latest_price_date")
+        if latest_price_date:
+            st.caption(f"Latest price snapshot: `{latest_price_date}`")
+        if missing_tracker_prices:
+            st.warning("Latest prices are missing for: " + ", ".join(sorted(missing_tracker_prices)))
+
+        tracker_fig = go.Figure()
+        tracker_fig.add_trace(
+            go.Bar(
+                name="Invested Amount",
+                x=tracker_positions_df["Symbol"],
+                y=tracker_positions_df["Invested Amount"],
+                marker_color="#1f77b4",
+            )
+        )
+        tracker_fig.add_trace(
+            go.Bar(
+                name="Current Amount",
+                x=tracker_positions_df["Symbol"],
+                y=tracker_positions_df["Current Amount"].fillna(0.0),
+                marker_color="#2ca02c",
+            )
+        )
+        tracker_fig.update_layout(
+            barmode="group",
+            height=380,
+            margin=dict(t=30, b=20),
+            yaxis_title="Amount (INR)",
+            legend_title_text="",
+        )
+        st.plotly_chart(tracker_fig, use_container_width=True)
+
+        st.dataframe(
+            tracker_positions_df.style.format(
+                {
+                    "Invested Amount": "₹{:,.2f}",
+                    "Quantity": "{:,.4f}",
+                    "Average Cost": "₹{:,.2f}",
+                    "Current Price": "₹{:,.2f}",
+                    "Current Amount": "₹{:,.2f}",
+                    "P&L": "₹{:,.2f}",
+                    "P&L %": "{:.2%}",
+                }
+            ),
+            use_container_width=True,
+            hide_index=True,
+        )
+    else:
+        st.info("Add tracked stocks above to compare invested amount with current value.")
+
+    st.divider()
 
     with st.expander(f"⚙️ {pname} Configuration", expanded=True):
         new_name = st.text_input("Portfolio Name", value=pname, help="Name used to store in DB.")
