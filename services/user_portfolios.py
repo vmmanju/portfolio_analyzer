@@ -190,6 +190,7 @@ def refresh_portfolio_allocation(
         get_latest_scoring_date,
         construct_equal_weight_portfolio,
         construct_inverse_vol_portfolio,
+        is_equal_weight_strategy,
         load_ranked_stocks,
         store_portfolio,
         STRATEGY_EQUAL_WEIGHT,
@@ -233,7 +234,7 @@ def refresh_portfolio_allocation(
                         alloc_df["weight"] = alloc_df["weight"] / tot
             else:
                 alloc_df = pd.DataFrame()
-        elif strategy in (STRATEGY_EQUAL_WEIGHT, "equal_weight"):
+        elif is_equal_weight_strategy(strategy):
             alloc_df = construct_equal_weight_portfolio(
                 as_of_date, top_n=top_n, selected_symbols=selected
             )

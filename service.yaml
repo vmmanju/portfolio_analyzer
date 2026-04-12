@@ -1,0 +1,30 @@
+apiVersion: serving.knative.dev/v1
+kind: Service
+metadata:
+  name: ai-stock-engine
+  annotations:
+    run.googleapis.com/launch-stage: BETA
+spec:
+  template:
+    spec:
+      containers:
+      - image: us-central1-docker.pkg.dev/project-b7ab4ad8-6cf4-491a-b4e/cloud-run-source-deploy/ai-stock-engine:latest
+        ports:
+        - containerPort: 8080
+        env:
+        - name: ENVIRONMENT
+          value: "web"
+        - name: DATABASE_URL
+          value: "postgresql://neondb_owner:npg_EQTd1DNPCY9m@ep-steep-snow-a1a4wgoe.ap-southeast-1.aws.neon.tech/neondb?sslmode=require"
+        - name: OLLAMA_URL
+          value: "http://localhost:11434/api/generate"
+        resources:
+          limits:
+            cpu: "2"
+            memory: "4Gi"
+      - name: ollama
+        image: ollama/ollama:latest
+        resources:
+          limits:
+            cpu: "1"
+            memory: "4Gi"

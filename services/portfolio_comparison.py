@@ -16,6 +16,7 @@ Notes:
 from dataclasses import dataclass
 from typing import List, Dict, Any, Tuple, Optional
 from datetime import date
+from collections import OrderedDict
 
 import math
 import json
@@ -25,7 +26,7 @@ import numpy as np
 import concurrent.futures
 
 from services.backtest import run_backtest, construct_portfolio_for_date, get_rebalance_dates, compute_period_returns, calculate_transaction_cost, _load_prices_for_stocks
-from services.portfolio import construct_equal_weight_portfolio, construct_inverse_vol_portfolio, get_latest_scoring_date, load_ranked_stocks_batch
+from services.portfolio import construct_equal_weight_portfolio, construct_inverse_vol_portfolio, get_latest_scoring_date, is_equal_weight_strategy, load_ranked_stocks_batch
 from services.covariance_estimator import robust_covariance_matrix
 from services.return_estimator import shrunk_annualised_returns
 from services.stability_analyzer import compute_rolling_stability
@@ -49,7 +50,22 @@ RISK_FREE = 0.0
 STRATEGY_AUTO_HYBRID = "auto_diversified_hybrid"
 
 # Simple in-memory cache to avoid recomputation in the same process/session
-_BACKTEST_CACHE: Dict[str, Dict[str, Any]] = {}
+_BACKTEST_CACHE: "OrderedDict[str, Dict[str, Any]]" = OrderedDict()
+_BACKTEST_CACHE_MAX_SIZE = 16
+
+
+def _cache_get(key: str) -> Dict[str, Any] | None:
+    cached = _BACKTEST_CACHE.get(key)
+    if cached is not None:
+        _BACKTEST_CACHE.move_to_end(key)
+    return cached
+
+
+def _cache_put(key: str, value: Dict[str, Any]) -> None:
+    _BACKTEST_CACHE[key] = value
+    _BACKTEST_CACHE.move_to_end(key)
+    while len(_BACKTEST_CACHE) > _BACKTEST_CACHE_MAX_SIZE:
+        _BACKTEST_CACHE.popitem(last=False)
 
 
 @dataclass
@@ -265,8 +281,9 @@ def backtest_user_portfolios(portfolios: List[UserPortfolio], start_date: date, 
     with backtest_user_portfolios._cache_lock:
         for p in portfolios:
             key = _cache_key_for_portfolio(p, start_date, end_date)
-            if key in _BACKTEST_CACHE:
-                results[p.name] = _BACKTEST_CACHE[key]
+            cached = _cache_get(key)
+            if cached is not None:
+                results[p.name] = cached
             else:
                 to_compute.append((p, key))
                 if p.symbols:
@@ -288,20 +305,25 @@ def backtest_user_portfolios(portfolios: List[UserPortfolio], start_date: date, 
                 all_score_dates = [r[0] for r in db.execute(score_stmt).all()]
             
             if all_score_dates:
-                # Find rebalance dates locally to know which score dates to fetch
-                # (Simple approximation: fetch everything in range)
-                relevant_score_dates = [d for d in all_score_dates if (start_date is None or d >= start_date) and (end_date is None or d <= end_date)]
+                rebalance_dates = get_rebalance_dates(start_date=start_date, end_date=end_date)
+                relevant_score_dates = []
+                for rebalance_date in rebalance_dates:
+                    idx = bisect.bisect_right(all_score_dates, rebalance_date)
+                    if idx > 0:
+                        relevant_score_dates.append(all_score_dates[idx - 1])
+                relevant_score_dates = sorted(set(relevant_score_dates))
                 if relevant_score_dates:
                     global_ranked_cache = load_ranked_stocks_batch(relevant_score_dates, selected_symbols=list(all_symbols) if all_symbols else None)
             
             # Pricing data (superset of all symbols)
             if all_symbols:
-                from app.models import Price
                 with get_db_context() as db:
+                    symbol_rows = db.execute(select(Stock.id, Stock.symbol).where(Stock.symbol.in_(list(all_symbols)))).all()
+                    stock_ids = [row[0] for row in symbol_rows]
                     p_end = db.execute(select(Price.date).order_by(Price.date.desc()).limit(1)).scalars().first()
-                if p_end:
+                if stock_ids and p_end:
                     global_price_cache = _load_prices_for_stocks(
-                        list([s for s in all_symbols]), 
+                        stock_ids,
                         start_date if start_date else date(2000, 1, 1), 
                         p_end
                     )
@@ -318,7 +340,7 @@ def backtest_user_portfolios(portfolios: List[UserPortfolio], start_date: date, 
                     p_name, key, out = future.result()
                     results[p_name] = out
                     with backtest_user_portfolios._cache_lock:
-                        _BACKTEST_CACHE[key] = out
+                        _cache_put(key, out)
             except (KeyboardInterrupt, SystemExit, Exception) as e:
                 executor.shutdown(wait=False, cancel_futures=True)
                 raise e
@@ -329,7 +351,7 @@ def backtest_user_portfolios(portfolios: List[UserPortfolio], start_date: date, 
                 p_name, key, out = _worker_run_portfolio(p, start_date, end_date, key, global_price_cache, global_ranked_cache)
                 results[p_name] = out
                 with backtest_user_portfolios._cache_lock:
-                    _BACKTEST_CACHE[key] = out
+                    _cache_put(key, out)
 
     # Compute Risk Responsiveness Component (RRC) contextually
     series_map = {}
@@ -806,7 +828,7 @@ def construct_meta_portfolio(
                     continue
 
                 try:
-                    if pdef.strategy in ("equal_weight", "equal_weight_top_n"):
+                    if is_equal_weight_strategy(pdef.strategy):
                         alloc_df = construct_equal_weight_portfolio(as_of, top_n=pdef.top_n, selected_symbols=pdef.symbols)
                     else:
                         alloc_df = construct_inverse_vol_portfolio(as_of, top_n=pdef.top_n, selected_symbols=pdef.symbols)

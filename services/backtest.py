@@ -22,6 +22,7 @@ if str(_project_root) not in sys.path:
 
 import math
 import bisect
+from functools import lru_cache
 import pandas as pd
 import numpy as np
 from sqlalchemy import select
@@ -34,6 +35,7 @@ from app.models import Price, Score
 from services.portfolio import (
     construct_equal_weight_portfolio,
     construct_inverse_vol_portfolio,
+    is_equal_weight_strategy,
     load_ranked_stocks,
     load_ranked_stocks_batch,
 )
@@ -69,6 +71,30 @@ def get_latest_score_date_on_or_before(as_of_date: date) -> Optional[date]:
     return row
 
 
+@lru_cache(maxsize=4)
+def _get_all_rebalance_dates_cache(
+    latest_price_date: Optional[date],
+    latest_score_date: Optional[date],
+) -> tuple[list[date], tuple[date, ...]]:
+    """Cache the expensive full-history date scan used to derive month-end rebalances."""
+    with get_db_context() as db:
+        price_dates = db.execute(select(Price.date).distinct()).scalars().all()
+        score_dates = tuple(sorted(db.execute(select(Score.date).distinct()).scalars().all()))
+
+    if not price_dates or not score_dates:
+        return [], score_dates
+
+    df = pd.DataFrame({"date": pd.to_datetime(price_dates)})
+    month_ends = (
+        df.groupby([df["date"].dt.year, df["date"].dt.month])["date"]
+        .max()
+        .sort_values()
+        .dt.date
+        .tolist()
+    )
+    return month_ends, score_dates
+
+
 def get_rebalance_dates(
     start_date: Optional[date] = None,
     end_date: Optional[date] = None,
@@ -80,26 +106,15 @@ def get_rebalance_dates(
     end_date: only return rebalance dates on or before this date.
     """
     with get_db_context() as db:
-        # All distinct dates from prices
-        date_stmt = select(Price.date).distinct()
-        price_dates = [r[0] for r in db.execute(date_stmt).all()]
-        # All distinct score dates once
-        score_stmt = select(Score.date).distinct()
-        score_dates = sorted([r[0] for r in db.execute(score_stmt).all()])
+        latest_price_date = db.execute(select(Price.date).order_by(Price.date.desc()).limit(1)).scalars().first()
+        latest_score_date = db.execute(select(Score.date).order_by(Score.date.desc()).limit(1)).scalars().first()
 
-    if not price_dates or not score_dates:
+    month_ends, score_dates = _get_all_rebalance_dates_cache(latest_price_date, latest_score_date)
+    if not month_ends or not score_dates:
         return []
-
-    df = pd.DataFrame({"date": price_dates})
-    df["date"] = pd.to_datetime(df["date"])
-    df["year"] = df["date"].dt.year
-    df["month"] = df["date"].dt.month
-    # Last trading day per month
-    month_ends = df.groupby(["year", "month"])["date"].max().sort_values().dt.date.tolist()
 
     # Filter: keep only rebalance dates where we have a score on or before that date
     rebalance_dates = []
-    import bisect
     for d in month_ends:
         # Efficiently find if there is a score date <= d
         idx = bisect.bisect_right(score_dates, d)
@@ -145,7 +160,7 @@ def construct_portfolio_for_date(
             tot = df["weight"].sum()
             if tot > 0:
                 df["weight"] = df["weight"] / tot
-    elif strategy == STRATEGY_EQUAL_WEIGHT:
+    elif is_equal_weight_strategy(strategy):
         df = construct_equal_weight_portfolio(score_date, top_n=top_n, selected_symbols=selected_symbols, data_cache=data_cache)
     elif strategy == STRATEGY_INVERSE_VOL:
         df = construct_inverse_vol_portfolio(score_date, top_n=top_n, selected_symbols=selected_symbols, data_cache=data_cache)

@@ -28,9 +28,38 @@ Heavy background maintenance tasks (like OLS Calibration) should NEVER block the
 - **Heavy Backtests**: Ensure backtests use `@st.cache_data(ttl=...)` and respect the `st.session_state.use_multiprocessing` flag.
 - **Rerun Management**: Use a custom `_safe_rerun()` helper that supports newer Streamlit versions while falling back gracefully.
 
+### 5. Data Synchronization & Cache Management
+Maintenance workflows must proactively deal with frontend caching to prevent stale data reports.
+- **Frontend TTLs**: High-frequency metadata (like available date ranges) should have low TTLs (< 300s).
+- **Session State Forcing**: If `st.session_state` stores a date, it must be compare-and-updated against the latest DB date on each run to prevent persistent stale sessions.
+- **Maintenance Thresholds**: Long-running calibrations (like Auto-N) should be re-triggered only if `as_of_date > last_run_date`, ensuring updates are consistent with the latest data.
+- **Neon Limit Awareness**: Always limit historical data fetch (default 2 years) to respect Neon's **500MB** storage limits for free-tier databases.
+
+## Maintenance Checklist
+1. **DB Sync**: Run `scripts/update_db_all_nse.py` targeting the production `DATABASE_URL`.
+2. **Verify Record Count**: Use `psql` to verify `max(date)` in both `prices` and `scores`.
+3. **Redeploy Dashboard**: If logic changes (like TTLs or session handling) are required, redeploy it to ensure new containers pick up the changes.
+4. **Force Invalidation**: If Auto-N calibration is stale, use the "Force Recompute (N)" button in the web UI.
+
 ## Deployment Checklist
 1. **Memory Bounds**: Cloud Run requires at least 8GiB for high-depth backtests.
 2. **PostgreSQL Sockets**: Child processes must call `engine.dispose(close=False)` to avoid inheriting and corrupting the primary connection pool.
 3. **Environment Isolation**:
     - Local: Hardcode `user_id = 1` if auth is disabled.
     - Web: Use `require_login()` and map `st.session_state["user_id"]` from the OAuth object.
+
+## Related Resources — Lessons RAG
+
+Before debugging performance or cache issues, query the project's RAG knowledge base to instantly surface documented solutions:
+
+```bash
+# From portfolio_analyzer root:
+.venv\Scripts\python .agents/skills/lessons_rag/scripts/rag_engine.py "your question here"
+
+# Useful examples for this skill:
+.venv\Scripts\python .agents/skills/lessons_rag/scripts/rag_engine.py "cold start slow startup"
+.venv\Scripts\python .agents/skills/lessons_rag/scripts/rag_engine.py "stale date cache session state"
+.venv\Scripts\python .agents/skills/lessons_rag/scripts/rag_engine.py "n+1 query sqlalchemy portfolio"
+```
+
+See `.agents/skills/lessons_rag/SKILL.md` for full usage instructions.

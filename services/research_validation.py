@@ -140,6 +140,13 @@ def _backtest_with_custom_weights(
             how="left",
         )
 
+    rebalance_dates = get_rebalance_dates(start_date=start_date, end_date=end_date)
+    if len(rebalance_dates) < 2:
+        return (
+            pd.DataFrame(columns=["date", "daily_return", "cumulative_return", "drawdown"]),
+            {},
+        )
+
     # Optimization: pre-calculate score dates for rebalance mapping
     with get_db_context() as db:
         all_score_dates = [r[0] for r in db.execute(select(Score.date).distinct().order_by(Score.date)).all()]
@@ -168,13 +175,6 @@ def _backtest_with_custom_weights(
         if p_end:
             from services.backtest import _load_prices_for_stocks
             price_cache = _load_prices_for_stocks(list(involved_stock_ids), p_start, p_end)
-
-    rebalance_dates = get_rebalance_dates(start_date=start_date, end_date=end_date)
-    if len(rebalance_dates) < 2:
-        return (
-            pd.DataFrame(columns=["date", "daily_return", "cumulative_return", "drawdown"]),
-            {},
-        )
 
     daily_returns_list: list[pd.Series] = []
     old_weights: dict[int, float] = {}
@@ -279,36 +279,53 @@ def run_walk_forward(
         n_test = max(6, int(ROLLING_TEST_YEARS * 12))
         step = 12
         i = 0
-        while i + n_train + n_test <= len(all_dates):
-            train_start = all_dates[i]
-            train_end = all_dates[i + n_train - 1]
-            test_start = all_dates[i + n_train]
-            test_end = all_dates[i + n_train + n_test - 1]
-            test_end = all_dates[i + n_train + n_test - 1]
-            
-            if use_multiprocessing:
-                with concurrent.futures.ProcessPoolExecutor(max_workers=2) as executor:
+        if use_multiprocessing:
+            with concurrent.futures.ProcessPoolExecutor(max_workers=2) as executor:
+                while i + n_train + n_test <= len(all_dates):
+                    train_start = all_dates[i]
+                    train_end = all_dates[i + n_train - 1]
+                    test_start = all_dates[i + n_train]
+                    test_end = all_dates[i + n_train + n_test - 1]
+
                     f_train = executor.submit(run_backtest, strategy=strategy, top_n=top_n, start_date=train_start, end_date=train_end, selected_symbols=selected_symbols)
                     f_test = executor.submit(run_backtest, strategy=strategy, top_n=top_n, start_date=test_start, end_date=test_end, selected_symbols=selected_symbols)
-                    
                     _, train_sum = f_train.result()
                     _, test_sum = f_test.result()
-            else:
+
+                    if train_sum and test_sum:
+                        rows.append({
+                            "window_start": train_start,
+                            "window_end": test_end,
+                            "train_CAGR": train_sum.get("CAGR"),
+                            "train_Sharpe": train_sum.get("Sharpe"),
+                            "train_MaxDD": train_sum.get("Max Drawdown"),
+                            "test_CAGR": test_sum.get("CAGR"),
+                            "test_Sharpe": test_sum.get("Sharpe"),
+                            "test_MaxDD": test_sum.get("Max Drawdown"),
+                        })
+                    i += step
+        else:
+            while i + n_train + n_test <= len(all_dates):
+                train_start = all_dates[i]
+                train_end = all_dates[i + n_train - 1]
+                test_start = all_dates[i + n_train]
+                test_end = all_dates[i + n_train + n_test - 1]
+
                 _, train_sum = run_backtest(strategy=strategy, top_n=top_n, start_date=train_start, end_date=train_end, selected_symbols=selected_symbols)
                 _, test_sum = run_backtest(strategy=strategy, top_n=top_n, start_date=test_start, end_date=test_end, selected_symbols=selected_symbols)
-                
-            if train_sum and test_sum:
-                rows.append({
-                    "window_start": train_start,
-                    "window_end": test_end,
-                    "train_CAGR": train_sum.get("CAGR"),
-                    "train_Sharpe": train_sum.get("Sharpe"),
-                    "train_MaxDD": train_sum.get("Max Drawdown"),
-                    "test_CAGR": test_sum.get("CAGR"),
-                    "test_Sharpe": test_sum.get("Sharpe"),
-                    "test_MaxDD": test_sum.get("Max Drawdown"),
-                })
-            i += step
+
+                if train_sum and test_sum:
+                    rows.append({
+                        "window_start": train_start,
+                        "window_end": test_end,
+                        "train_CAGR": train_sum.get("CAGR"),
+                        "train_Sharpe": train_sum.get("Sharpe"),
+                        "train_MaxDD": train_sum.get("Max Drawdown"),
+                        "test_CAGR": test_sum.get("CAGR"),
+                        "test_Sharpe": test_sum.get("Sharpe"),
+                        "test_MaxDD": test_sum.get("Max Drawdown"),
+                    })
+                i += step
     else:
         # Single split: first 60% train, last 40% test
         split_idx = max(1, int(len(all_dates) * TRAIN_FRACTION))

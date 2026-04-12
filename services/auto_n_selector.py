@@ -73,14 +73,18 @@ def update_optimal_n_if_due(
     if not force and state and "last_run_date" in state:
         try:
             last_run = date.fromisoformat(state["last_run_date"])
-            months_elapsed = (as_of_date.year - last_run.year) * 12 + (as_of_date.month - last_run.month)
-            if months_elapsed < 6:
-                _logger.info("Auto N selection not due. Using cached N=%d (last run: %s)", state.get("optimal_n", 15), last_run)
-                if "evaluation_table" in state and isinstance(state["evaluation_table"], list):
-                    state["evaluation_table"] = pd.DataFrame(state["evaluation_table"])
-                state["calibration_source"] = "cached"
-                state["updated"] = False
-                return state
+            # If we are looking for the same or older date, apply 6-month cache
+            if as_of_date <= last_run:
+                months_elapsed = (as_of_date.year - last_run.year) * 12 + (as_of_date.month - last_run.month)
+                if months_elapsed < 6:
+                    _logger.info("Auto N selection not due. Using cached N=%d (last run: %s)", state.get("optimal_n", 15), last_run)
+                    if "evaluation_table" in state and isinstance(state["evaluation_table"], list):
+                        state["evaluation_table"] = pd.DataFrame(state["evaluation_table"])
+                    state["calibration_source"] = "cached"
+                    state["updated"] = False
+                    return state
+            else:
+                _logger.info("Newer data detected (%s > %s). Triggering Auto N re-selection.", as_of_date, last_run)
         except Exception as e:
             _logger.debug("Failed parsing last_run_date: %s", e)
             

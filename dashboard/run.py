@@ -99,7 +99,7 @@ def _safe_rerun() -> None:
 
 
 # --- Default date range from DB ---
-@st.cache_data(ttl=3600)
+@st.cache_data(ttl=60)
 def _get_score_date_range() -> tuple[date, date]:
     """Earliest and latest score dates."""
     with get_db_context() as db:
@@ -193,7 +193,7 @@ def _init_session_state() -> None:
         if start_choice > default_end:
             start_choice = default_end
         st.session_state.start_date = start_choice
-    if "end_date" not in st.session_state:
+    if "end_date" not in st.session_state or st.session_state.end_date < default_end:
         st.session_state.end_date = default_end
     if "strategy" not in st.session_state:
         st.session_state.strategy = STRATEGY_EQUAL_WEIGHT

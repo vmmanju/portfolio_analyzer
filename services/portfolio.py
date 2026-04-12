@@ -25,12 +25,18 @@ from app.models import Factor, PortfolioAllocation, Score, Stock
 
 
 # Strategy identifiers for DB and display
-STRATEGY_EQUAL_WEIGHT = "equal_weight_top_n"
+STRATEGY_EQUAL_WEIGHT = "equal_weight"
+LEGACY_STRATEGY_EQUAL_WEIGHT = "equal_weight_top_n"
 STRATEGY_INVERSE_VOL = "inverse_volatility"
 
 # Inverse-vol: use volatility_score (z-scored) as proxy when raw vol not stored.
 # Weight ∝ 1 / (volatility_score + offset); offset keeps denominator positive.
 VOLATILITY_ZSCORE_OFFSET = 2.0
+
+
+def is_equal_weight_strategy(strategy: str | None) -> bool:
+    """Return True for the canonical equal-weight strategy or its legacy alias."""
+    return strategy in {STRATEGY_EQUAL_WEIGHT, LEGACY_STRATEGY_EQUAL_WEIGHT}
 
 
 def get_latest_scoring_date() -> Optional[date]:
@@ -52,7 +58,7 @@ def load_ranked_stocks(as_of_date: date, selected_symbols: list[str] | None = No
         mask = (data_cache["date"] == as_of_date)
         df = data_cache.loc[mask].copy()
         if selected_symbols:
-            df = df[df["symbol"].in_(selected_symbols)]
+            df = df[df["symbol"].isin(selected_symbols)]
         if sector:
             df = df[df["sector"].str.contains(sector, case=False, na=False)]
         return df.sort_values("rank").reset_index(drop=True)
