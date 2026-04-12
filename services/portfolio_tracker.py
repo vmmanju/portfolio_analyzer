@@ -7,11 +7,16 @@ from typing import Any, Dict, Iterable, List, Optional
 import pandas as pd
 from sqlalchemy import delete, func, select
 
-from app.database import get_db_context
+from app.database import engine, get_db_context
 from app.models import PortfolioTrackerPosition, Price, Stock
 
 
 TRACKER_COLUMNS = ["symbol", "invested_amount", "quantity"]
+
+
+def _ensure_tracker_table() -> None:
+    """Create the tracker table on-demand if the migration has not run yet."""
+    PortfolioTrackerPosition.__table__.create(bind=engine, checkfirst=True)
 
 
 def normalize_tracker_positions(rows: Iterable[Dict[str, Any]] | pd.DataFrame | None) -> List[Dict[str, float | str]]:
@@ -45,6 +50,7 @@ def normalize_tracker_positions(rows: Iterable[Dict[str, Any]] | pd.DataFrame | 
 
 def load_tracked_positions(user_id: Optional[int] = None) -> List[Dict[str, float | str]]:
     """Load persisted portfolio tracker rows for one user."""
+    _ensure_tracker_table()
     with get_db_context() as db:
         stmt = (
             select(
@@ -75,6 +81,7 @@ def save_tracked_positions(
     user_id: Optional[int] = None,
 ) -> List[Dict[str, float | str]]:
     """Replace the tracked positions for a user with the provided normalized rows."""
+    _ensure_tracker_table()
     positions = normalize_tracker_positions(rows)
     symbols = [row["symbol"] for row in positions]
 
@@ -143,6 +150,7 @@ def build_tracker_snapshot(
     user_id: Optional[int] = None,
 ) -> Dict[str, Any]:
     """Build a valuation snapshot using the latest available closing prices."""
+    _ensure_tracker_table()
     positions = normalize_tracker_positions(rows if rows is not None else load_tracked_positions(user_id=user_id))
     if not positions:
         empty_df = pd.DataFrame(

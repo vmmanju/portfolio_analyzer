@@ -3,7 +3,7 @@ from datetime import date
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
-from app.models import Base, Price, Stock
+from app.models import Base, Price, Stock, User
 import services.portfolio_tracker as pt
 
 
@@ -40,6 +40,7 @@ def _seed_prices():
 
 def test_save_tracked_positions_round_trip(monkeypatch):
     monkeypatch.setattr(pt, "get_db_context", MockDBContext)
+    monkeypatch.setattr(pt, "engine", engine)
     Base.metadata.create_all(bind=engine)
     try:
         _seed_prices()
@@ -63,6 +64,7 @@ def test_save_tracked_positions_round_trip(monkeypatch):
 
 def test_build_tracker_snapshot_computes_current_amount(monkeypatch):
     monkeypatch.setattr(pt, "get_db_context", MockDBContext)
+    monkeypatch.setattr(pt, "engine", engine)
     Base.metadata.create_all(bind=engine)
     try:
         _seed_prices()
@@ -86,5 +88,24 @@ def test_build_tracker_snapshot_computes_current_amount(monkeypatch):
         assert summary["total_current"] == 13800.0
         assert summary["total_pnl"] == -1200.0
         assert summary["priced_positions"] == 2
+    finally:
+        Base.metadata.drop_all(bind=engine)
+
+
+def test_save_tracked_positions_creates_missing_tracker_table(monkeypatch):
+    monkeypatch.setattr(pt, "get_db_context", MockDBContext)
+    monkeypatch.setattr(pt, "engine", engine)
+    Base.metadata.create_all(bind=engine, tables=[User.__table__, Stock.__table__, Price.__table__])
+    try:
+        _seed_prices()
+        saved = pt.save_tracked_positions(
+            [{"symbol": "TCS", "invested_amount": 10000, "quantity": 3}],
+            user_id=1,
+        )
+        assert saved == [{"symbol": "TCS", "invested_amount": 10000.0, "quantity": 3.0}]
+
+        loaded = pt.load_tracked_positions(user_id=1)
+        assert len(loaded) == 1
+        assert loaded[0]["symbol"] == "TCS"
     finally:
         Base.metadata.drop_all(bind=engine)

@@ -17,11 +17,15 @@ def get_stock_summary(params: Dict[str, Any]) -> Dict[str, Any]:
         from app.models import Stock, Factor, Fundamental
         from sqlalchemy import select, desc
         from services.portfolio import get_latest_scoring_date
+        from datetime import date as _date
         
         factors = {}
         fundamentals = {}
         with get_db_context() as db:
-            latest_date = get_latest_scoring_date()
+            try:
+                latest_date = get_latest_scoring_date()
+            except Exception:
+                latest_date = _date.today()
             stock = db.execute(select(Stock).where(Stock.symbol == symbol)).scalars().first()
             if stock:
                 # 1. Factors
@@ -48,7 +52,10 @@ def get_stock_summary(params: Dict[str, Any]) -> Dict[str, Any]:
                 else:
                     # Fallback to Live Fetch
                     from services.financial_utils import fetch_live_fundamentals
-                    fundamentals = fetch_live_fundamentals(symbol)
+                    try:
+                        fundamentals = fetch_live_fundamentals(symbol)
+                    except Exception:
+                        fundamentals = {"source": "unavailable"}
 
         rec = generate_recommendation(signal, risk_profile="moderate")
         return {
@@ -71,6 +78,7 @@ def get_stock_research(params: Dict[str, Any]) -> Dict[str, Any]:
     from services.recommendation import get_stock_signal
     from app.models import Factor
     from sqlalchemy import select
+    from datetime import date as _date
     try:
         symbol = params.get("symbol")
         signal = get_stock_signal(symbol)
@@ -80,7 +88,10 @@ def get_stock_research(params: Dict[str, Any]) -> Dict[str, Any]:
         # Get factor & fundamental details
         with get_db_context() as db:
             from services.portfolio import get_latest_scoring_date
-            latest_date = get_latest_scoring_date()
+            try:
+                latest_date = get_latest_scoring_date()
+            except Exception:
+                latest_date = _date.today()
             from app.models import Stock, Factor, Fundamental
             from sqlalchemy import desc
             stock = db.execute(select(Stock).where(Stock.symbol == symbol)).scalars().first()
@@ -115,7 +126,10 @@ def get_stock_research(params: Dict[str, Any]) -> Dict[str, Any]:
                 else:
                     # Fallback to Live Fetch
                     from services.financial_utils import fetch_live_fundamentals
-                    fundamentals = fetch_live_fundamentals(symbol)
+                    try:
+                        fundamentals = fetch_live_fundamentals(symbol)
+                    except Exception:
+                        fundamentals = {"source": "unavailable"}
 
         return {
             "symbol": symbol,

@@ -66,6 +66,13 @@ from services import portfolio_tracker as pt_store
 from services import sector_analytics as sa
 from app.auth import require_login
 from app.config import settings
+from app.assistant.query_catalog import (
+    ASSISTANT_NEXT_INTENTS,
+    ASSISTANT_PROMPT_SUGGESTIONS,
+    ASSISTANT_ROADMAP_QUERY_LIBRARY,
+    ASSISTANT_RUNNABLE_QUERY_LIBRARY,
+    ASSISTANT_SUPPORTED_INTENTS,
+)
 
 
 
@@ -2298,6 +2305,10 @@ def _startup_auto_calibrate() -> None:
     pass
 
 
+def _queue_assistant_prompt(prompt: str) -> None:
+    st.session_state["assistant_pending_prompt"] = prompt
+
+
 def main() -> None:
     # ── Page Config MUST be first ──
     st.set_page_config(page_title="AI Stock Engine", layout="wide")
@@ -2364,6 +2375,40 @@ def render_assistant_mode() -> None:
     st.header("🤖 AI Assistant (V3 - Live Data Patch)")
     st.markdown("Ask natural language questions about the engine, your portfolios, or stock recommendations.")
 
+    if "assistant_pending_prompt" not in st.session_state:
+        st.session_state.assistant_pending_prompt = None
+
+    st.markdown("##### Prompt Suggestions")
+    st.caption("Tap any common investor query below to send it straight into the assistant.")
+    suggestion_cols = st.columns(3)
+    for idx, suggestion in enumerate(ASSISTANT_PROMPT_SUGGESTIONS):
+        if suggestion_cols[idx % 3].button(suggestion, key=f"assistant_suggestion_{idx}", use_container_width=True):
+            _queue_assistant_prompt(suggestion)
+
+    lib_tab, intents_tab = st.tabs(["Query Library", "Intent Library"])
+    with lib_tab:
+        st.caption("Runnable queries are backed by the current assistant router. Roadmap queries are shown separately so users can see what's planned next.")
+        st.markdown("**Runnable Queries**")
+        for category, queries in ASSISTANT_RUNNABLE_QUERY_LIBRARY.items():
+            with st.expander(category, expanded=False):
+                for q_idx, query in enumerate(queries):
+                    q_col, send_col = st.columns([6, 1])
+                    q_col.markdown(f"- {query}")
+                    if send_col.button("Use", key=f"use_query_{category}_{q_idx}"):
+                        _queue_assistant_prompt(query)
+        st.markdown("**Roadmap Queries**")
+        for category, queries in ASSISTANT_ROADMAP_QUERY_LIBRARY.items():
+            with st.expander(category, expanded=False):
+                for query in queries:
+                    st.markdown(f"- {query}")
+
+    with intents_tab:
+        st.caption("Supported now shows what the current assistant can route today. Recommended next captures high-value portfolio intents to build next.")
+        st.markdown("**Supported Now**")
+        st.dataframe(pd.DataFrame(ASSISTANT_SUPPORTED_INTENTS), use_container_width=True, hide_index=True)
+        st.markdown("**Recommended Next**")
+        st.dataframe(pd.DataFrame(ASSISTANT_NEXT_INTENTS), use_container_width=True, hide_index=True)
+
     # Status/Diagnostic for LLM
     from app.assistant.llm_engine import OLLAMA_URL, MODEL_NAME
     with st.expander("🌐 Engine Connectivity Status"):
@@ -2396,7 +2441,11 @@ def render_assistant_mode() -> None:
                 with st.expander("🛠️ Diagnostics & Factors Used"):
                     st.json(msg["details"])
 
-    if prompt := st.chat_input("Ask me about TCS, hybrid portfolios, or overfitting..."):
+    pending_prompt = st.session_state.pop("assistant_pending_prompt", None)
+    chat_prompt = st.chat_input("Ask me about TCS, hybrid portfolios, or overfitting...")
+    prompt = chat_prompt or pending_prompt
+
+    if prompt:
         st.session_state.assistant_messages.append({"role": "user", "content": prompt})
         with st.chat_message("user"):
             st.markdown(prompt)

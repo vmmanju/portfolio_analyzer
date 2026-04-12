@@ -18,7 +18,11 @@ class IntentRouter:
         "governance_check": [r"(?i)\b(overfitting|governance|bias)\b"],
         "calibration": [r"(?i)\b(calibration|drift|coefficients)\b"],
         "stability": [r"(?i)\b(stability|rolling|turnover)\b"],
-        "sector_ranking": [r"(?i)\b(top|best|rank|ranking)\b.*\b(sectors)\b"]
+        "sector_ranking": [
+            r"(?i)\b(top|best|rank|ranking)\b.*\b(sectors?)\b",
+            r"(?i)\bsectors?\b.*\b(top|best|rank|ranking|performing)\b",
+            r"(?i)\bsector\b.*\bperformance\b",
+        ]
     }
 
     @classmethod
@@ -52,7 +56,14 @@ class IntentRouter:
         """
         from app.assistant.llm_engine import llm_route_query
         
-        llm_intent, llm_symbol, llm_portfolio, llm_symbols, llm_sector = llm_route_query(query)
+        llm_result = llm_route_query(query)
+        if isinstance(llm_result, tuple) and len(llm_result) == 5:
+            llm_intent, llm_symbol, llm_portfolio, llm_symbols, llm_sector = llm_result
+        elif isinstance(llm_result, tuple) and len(llm_result) == 4:
+            llm_intent, llm_symbol, llm_portfolio, llm_symbols = llm_result
+            llm_sector = ""
+        else:
+            llm_intent, llm_symbol, llm_portfolio, llm_symbols, llm_sector = "", "", "", [], ""
         intent = ""
         symbol = "UNKNOWN"
         portfolio_name = ""
@@ -79,7 +90,7 @@ class IntentRouter:
             elif any(re.search(p, query) for p in cls.INTENT_MAPPINGS["governance_check"]): intent = "Governance Check"
             elif any(re.search(p, query) for p in cls.INTENT_MAPPINGS["calibration"]): intent = "Calibration Explanation"
             elif any(re.search(p, query) for p in cls.INTENT_MAPPINGS["stability"]): intent = "Stability Diagnostic"
-            elif any(re.search(p, query) for p in cls.INTENT_MAPPINGS["risk_diagnostics"]): intent = "Risk Diagnostics"
+            elif re.search(r"(?i)\bstop[- ]?loss\b", query) or any(re.search(p, query) for p in cls.INTENT_MAPPINGS["risk_diagnostics"]): intent = "Risk Diagnostics"
             elif any(re.search(p, query) for p in cls.INTENT_MAPPINGS["stock_research"]): intent = "Stock Research"
             elif cls.extract_symbol(query) != "UNKNOWN": intent = "Stock Recommendation"
             else: intent = "Unknown Intent"
