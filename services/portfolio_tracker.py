@@ -9,6 +9,7 @@ from sqlalchemy import delete, func, select
 
 from app.database import engine, get_db_context
 from app.models import PortfolioTrackerPosition, Price, Stock
+from services.data_fetcher import fetch_price_data
 
 
 TRACKER_COLUMNS = ["symbol", "invested_amount", "quantity"]
@@ -145,11 +146,37 @@ def _load_latest_prices(symbols: List[str]) -> Dict[str, Dict[str, Any]]:
     }
 
 
+def _load_live_prices(symbols: List[str]) -> Dict[str, Dict[str, Any]]:
+    """Fetch the latest available close directly from the upstream data source."""
+    live_prices: Dict[str, Dict[str, Any]] = {}
+    for symbol in symbols:
+        try:
+            df = fetch_price_data(symbol)
+        except Exception:
+            continue
+        if df.empty:
+            continue
+
+        latest_row = df.iloc[-1]
+        close_value = latest_row.get("close")
+        price_date = latest_row.get("date")
+        if pd.isna(close_value):
+            continue
+
+        live_prices[str(symbol)] = {
+            "current_price": float(close_value),
+            "price_date": price_date,
+            "price_source": "live",
+        }
+    return live_prices
+
+
 def build_tracker_snapshot(
     rows: Iterable[Dict[str, Any]] | pd.DataFrame | None = None,
     user_id: Optional[int] = None,
+    prefer_live: bool = False,
 ) -> Dict[str, Any]:
-    """Build a valuation snapshot using the latest available closing prices."""
+    """Build a valuation snapshot using DB prices or optional live price overlays."""
     _ensure_tracker_table()
     positions = normalize_tracker_positions(rows if rows is not None else load_tracked_positions(user_id=user_id))
     if not positions:
@@ -164,11 +191,16 @@ def build_tracker_snapshot(
                 "P&L",
                 "P&L %",
                 "Price Date",
+                "Price Source",
             ]
         )
         return {"positions_df": empty_df, "summary": {}, "missing_prices": []}
 
     price_map = _load_latest_prices([str(row["symbol"]) for row in positions])
+    if prefer_live:
+        live_price_map = _load_live_prices([str(row["symbol"]) for row in positions])
+        price_map.update(live_price_map)
+
     display_rows: List[Dict[str, Any]] = []
     missing_prices: List[str] = []
 
@@ -195,6 +227,7 @@ def build_tracker_snapshot(
                 "P&L": pnl,
                 "P&L %": pnl_pct,
                 "Price Date": price_info.get("price_date"),
+                "Price Source": price_info.get("price_source", "database"),
             }
         )
 

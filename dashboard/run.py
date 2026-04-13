@@ -595,7 +595,18 @@ def render_portfolio_mode() -> None:
             except Exception as exc:
                 st.error(f"Tracker reload failed: {exc}")
 
-    tracker_snapshot = pt_store.build_tracker_snapshot(tracker_rows, user_id=user_id)
+    use_live_tracker_prices = st.checkbox(
+        "Use live prices for tracker valuation",
+        value=False,
+        help="Fetch the latest available close on demand for the tracked symbols instead of only using stored DB prices.",
+        key="pm_use_live_prices",
+    )
+
+    tracker_snapshot = pt_store.build_tracker_snapshot(
+        tracker_rows,
+        user_id=user_id,
+        prefer_live=use_live_tracker_prices,
+    )
     tracker_positions_df = tracker_snapshot.get("positions_df", pd.DataFrame())
     tracker_summary = tracker_snapshot.get("summary", {})
     missing_tracker_prices = tracker_snapshot.get("missing_prices", [])
@@ -614,7 +625,8 @@ def render_portfolio_mode() -> None:
         )
         latest_price_date = tracker_summary.get("latest_price_date")
         if latest_price_date:
-            st.caption(f"Latest price snapshot: `{latest_price_date}`")
+            price_mode = "Live" if use_live_tracker_prices else "Database"
+            st.caption(f"{price_mode} price snapshot: `{latest_price_date}`")
         if missing_tracker_prices:
             st.warning("Latest prices are missing for: " + ", ".join(sorted(missing_tracker_prices)))
 

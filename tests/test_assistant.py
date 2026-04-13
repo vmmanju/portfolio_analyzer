@@ -17,6 +17,12 @@ class TestAssistant(unittest.TestCase):
         self.assertEqual(intent, "Market Overview")
         self.assertEqual(calls[0]["list_stocks"]["top_n"], 15)
 
+    def test_intent_router_market_overview_alt_phrasing(self):
+        """Top N extraction should work even when the number comes before 'top stocks'."""
+        intent, calls = IntentRouter.route_query("Show me 15 top stocks in the market")
+        self.assertEqual(intent, "Market Overview")
+        self.assertEqual(calls[0]["list_stocks"]["top_n"], 15)
+
     @patch("app.assistant.llm_engine.llm_route_query")
     def test_multi_stock_review_routing(self, mock_route):
         """Test that multi-stock review intent correctly maps to symbols list."""

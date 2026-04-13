@@ -48,6 +48,23 @@ class IntentRouter:
         return "UNKNOWN"
 
     @classmethod
+    def extract_requested_top_n(cls, query: str, default: int = 10) -> int:
+        """Extract a user-requested Top N from varied natural-language phrasings."""
+        patterns = [
+            r"\btop\s+(\d+)\b",
+            r"\bbest\s+(\d+)\b",
+            r"\b(\d+)\s+top\s+(?:stocks?|sectors?)\b",
+            r"\b(?:show|list|give|recommend)\s+(?:me\s+)?(\d+)\s+(?:stocks?|sectors?)\b",
+            r"\b(\d+)\s+(?:stocks?|sectors?)\b",
+        ]
+        lowered = query.lower()
+        for pattern in patterns:
+            match = re.search(pattern, lowered)
+            if match:
+                return int(match.group(1))
+        return default
+
+    @classmethod
     def route_query(cls, query: str) -> Tuple[str, List[Dict[str, Any]]]:
         """
         Parses the query and maps to an Intent and Functions.
@@ -111,16 +128,12 @@ class IntentRouter:
         elif intent == "Meta Portfolio Request": 
             return intent, [{"get_meta_portfolio": {}}]
         elif intent == "Market Overview":
-            n_match = re.search(r'top\s+(\d+)', query.lower())
-            top_n = int(n_match.group(1)) if n_match else 10
+            top_n = cls.extract_requested_top_n(query, default=10)
             return intent, [{"list_stocks": {"top_n": top_n, "sector": sector}}]
         elif intent == "Portfolio Comparison":
             return intent, [{"compare_portfolios": {}}]
         elif intent == "Sector Ranking":
-            n_match = re.search(r'(?:top|best)\s+(\d+)\s+sectors?', query.lower())
-            if not n_match:
-                n_match = re.search(r'(?:top|best)\s+(\d+)', query.lower())
-            top_n = int(n_match.group(1)) if n_match else 10
+            top_n = cls.extract_requested_top_n(query, default=10)
             
             s_match = re.search(r'(\d+)\s+stocks?', query.lower())
             stocks_per_sector = int(s_match.group(1)) if s_match else 0

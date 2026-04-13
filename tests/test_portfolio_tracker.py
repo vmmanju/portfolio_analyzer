@@ -109,3 +109,34 @@ def test_save_tracked_positions_creates_missing_tracker_table(monkeypatch):
         assert loaded[0]["symbol"] == "TCS"
     finally:
         Base.metadata.drop_all(bind=engine)
+
+
+def test_build_tracker_snapshot_prefers_live_prices(monkeypatch):
+    monkeypatch.setattr(pt, "get_db_context", MockDBContext)
+    monkeypatch.setattr(pt, "engine", engine)
+    Base.metadata.create_all(bind=engine)
+    try:
+        _seed_prices()
+
+        def _fake_fetch(symbol, start_date=None):
+            if symbol == "TCS":
+                return pt.pd.DataFrame(
+                    [
+                        {"date": date(2025, 1, 3), "open": 0, "high": 0, "low": 0, "close": 3700, "volume": 0}
+                    ]
+                )
+            return pt.pd.DataFrame()
+
+        monkeypatch.setattr(pt, "fetch_price_data", _fake_fetch)
+
+        snapshot = pt.build_tracker_snapshot(
+            [{"symbol": "TCS", "invested_amount": 10000, "quantity": 3}],
+            prefer_live=True,
+        )
+
+        tcs_row = snapshot["positions_df"].loc[snapshot["positions_df"]["Symbol"] == "TCS"].iloc[0]
+        assert tcs_row["Current Price"] == 3700.0
+        assert tcs_row["Price Source"] == "live"
+        assert snapshot["summary"]["total_current"] == 11100.0
+    finally:
+        Base.metadata.drop_all(bind=engine)
